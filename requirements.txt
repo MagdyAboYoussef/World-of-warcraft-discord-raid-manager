@@ -1,0 +1,8 @@
+discord.py>=2.4.0
+python-dotenv>=1.0.1
+requests>=2.32.0
+Pillow>=10.4.0
+# Windows ships no system tz database; zoneinfo needs this or every
+# admin-entered raid time silently falls back to UTC.
+tzdata>=2024.1
+

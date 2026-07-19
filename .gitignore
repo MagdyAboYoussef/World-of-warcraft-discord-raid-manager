@@ -1,0 +1,21 @@
+# Secrets — never commit. Real values go in .env, the template is .env.example.
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.py[cod]
+
+# Runtime state. Leading slash anchors this to the repo root - a bare "data/"
+# would also swallow bot/data/, which holds the spec and buff tables.
+/data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+
+# Downloaded Blizzard game assets — fetched with `python -m tools.fetch_icons`,
+# not redistributed.
+assets/icons/
+assets/contact_sheet.png
