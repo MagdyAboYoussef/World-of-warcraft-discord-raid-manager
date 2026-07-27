@@ -82,6 +82,17 @@ change your role targets, lock signups, or cancel the raid.
 
 Everything an admin does is private to them — no ephemeral spam in the channel.
 
+## Try it without hosting anything
+
+If you just want to see whether it fits your guild, invite the instance I run:
+
+**[Invite WoW Raid Bot to your Discord](https://discord.com/oauth2/authorize?client_id=1528172224392204420&permissions=347136&scope=bot+applications.commands)**
+
+No token, no Python, no server. Give it a channel and run `/raid create`.
+
+If you'd rather your raid data never left your own machine, host it yourself —
+that's the next section.
+
 ## Setup
 
 You run your own instance. It takes about five minutes, and your raid data
