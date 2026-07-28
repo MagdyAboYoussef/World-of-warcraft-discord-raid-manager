@@ -4,10 +4,6 @@ Our raid group is a bunch of 30-somethings with real life, kids and full-time
 jobs. Collectively we have a lot of raiding experience. We are also, somehow,
 completely incapable of organising a Tuesday night.
 
-Signups lived in a Discord thread. Someone always missed it. We'd 
-discover we had 3 paladins, no buffs, and nobody had checked whether
-we even had a Lust. Half the roster found out the raid time by asking "wait, is
-it 19:00 or 20:00 for me?"
 
 So I built this for us. It turned out to be genuinely useful, so here it is for
 any other guild that needs it.
