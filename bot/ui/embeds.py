@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import discord
 
 from ..config import region_label
 from ..data import buffs as buffs_data
-from ..data.specs import ROLE_ORDER, Role, get_spec
+from ..data.specs import ROLE_ORDER, get_spec
 from ..emojis import registry
 from ..store import Raid, RaidState, Signup, Status
 from .schedule import format_clock, format_display, format_duration
@@ -22,10 +23,23 @@ TITLE_LIMIT = 256
 DESCRIPTION_LIMIT = 4096
 TOTAL_LIMIT = 6000
 
-COLOR_OPEN = 0x2B9E5F
-COLOR_UNDER = 0xD9822B
-COLOR_LOCKED = 0x5865F2
-COLOR_CANCELLED = 0x992D22
+# Board colour tells you the raid's phase at a glance. Tunable thresholds:
+#   • 20+ accepted            → green  "rostered, good to go"
+#   • starts within 3 days    → orange "raid soon, still filling"
+#   • starts >3 days out / TBD → grey   "plenty of time"
+#   • past its end time        → red    "[COMPLETED]"
+READY_ACCEPTED = 20
+SOON_DAYS = 3
+#: A raid with no explicit duration is treated as this long, only for deciding
+#: when it has finished. Three hours is a typical raid night.
+ASSUMED_RAID_MINUTES = 180
+
+COLOR_READY = 0x2B9E5F      # green
+COLOR_SOON = 0xD9822B       # orange
+COLOR_FAR = 0x99AAB5        # grey
+COLOR_LOCKED = 0x5865F2     # blurple
+COLOR_CANCELLED = 0x992D22  # dark red
+COLOR_COMPLETED = 0xA83232  # red — the raid is over
 
 
 def clamp(text: str, limit: int) -> str:
@@ -142,13 +156,27 @@ def _fit_inline(items: list[str], sep: str = "  ", empty: str = "*—*") -> str:
     return sep.join(out) if out else empty
 
 
-def _role_counts(accepted: list[Signup]) -> dict[Role, int]:
-    counts = dict.fromkeys(ROLE_ORDER, 0)
-    for signup in accepted:
-        spec = _spec_of(signup)
-        if spec:
-            counts[spec.role] += 1
-    return counts
+def _raid_appearance(raid: Raid, accepted_count: int) -> tuple[int, str]:
+    """Return (colour, title prefix) for the raid's current phase.
+
+    Cancelled and completed are terminal and win over everything; a locked raid
+    keeps its own colour; otherwise the applying-phase colour is driven by how
+    full the roster is and how soon the raid starts.
+    """
+    now = int(time.time())
+    if raid.state is RaidState.CANCELLED:
+        return COLOR_CANCELLED, "[CANCELLED] "
+    if raid.starts_at is not None:
+        ends_at = raid.starts_at + (raid.duration_minutes or ASSUMED_RAID_MINUTES) * 60
+        if now >= ends_at:
+            return COLOR_COMPLETED, "[COMPLETED] "
+    if raid.state is RaidState.LOCKED:
+        return COLOR_LOCKED, "[LOCKED] "
+    if accepted_count >= READY_ACCEPTED:
+        return COLOR_READY, ""
+    if raid.starts_at is not None and raid.starts_at - now <= SOON_DAYS * 86400:
+        return COLOR_SOON, ""
+    return COLOR_FAR, ""
 
 
 def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
@@ -157,22 +185,10 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         by_status[signup.status].append(signup)
 
     accepted = by_status[Status.ACCEPTED]
-    counts = _role_counts(accepted)
     total_cap = sum(raid.caps.values())
-    under = any(counts[r] < raid.caps.get(r.value, 0) for r in ROLE_ORDER)
 
-    if raid.state is RaidState.CANCELLED:
-        color = COLOR_CANCELLED
-    elif raid.state is RaidState.LOCKED:
-        color = COLOR_LOCKED
-    else:
-        color = COLOR_UNDER if under else COLOR_OPEN
-
-    title = raid.title
-    if raid.state is RaidState.CANCELLED:
-        title = f"[CANCELLED] {title}"
-    elif raid.state is RaidState.LOCKED:
-        title = f"[LOCKED] {title}"
+    color, title_prefix = _raid_appearance(raid, len(accepted))
+    title = f"{title_prefix}{raid.title}"
 
     description_parts: list[str] = []
     if raid.description:

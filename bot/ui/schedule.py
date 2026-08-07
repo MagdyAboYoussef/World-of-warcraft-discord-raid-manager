@@ -39,8 +39,9 @@ WEEKDAYS = {
     "mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6,
 }
 
-#: Minutes before start at which to ping the accepted roster.
-REMINDER_OFFSETS = (60, 10)
+#: Minutes before start at which to ping the accepted roster. A single warning,
+#: with no separate ping at start time itself.
+REMINDER_OFFSETS = (10,)
 
 
 def _tz(name: str | None = None) -> ZoneInfo | timezone:
@@ -311,7 +312,7 @@ REMINDER_WINDOW = 90
 
 
 class ReminderTask:
-    """Fires 60-minute, 10-minute and at-start pings for scheduled raids.
+    """Fires a single 10-minute warning ping for scheduled raids.
 
     Which reminders have already gone out is recorded in the database rather
     than in memory: a restart mid-evening would otherwise re-ping everybody for
@@ -342,26 +343,22 @@ class ReminderTask:
         for raid in store.open_raids(guild_id):
             if raid.starts_at is None or raid.state is not RaidState.OPEN:
                 continue
-            for offset in (*REMINDER_OFFSETS, 0):
+            for offset in REMINDER_OFFSETS:
                 due = raid.starts_at - offset * 60
                 if not (due <= now < due + REMINDER_WINDOW):
                     continue
                 # claim_reminder is an atomic INSERT: it returns False if this
                 # reminder has already been sent, including by a previous run.
                 if store.claim_reminder(raid.id, offset):
-                    await self._announce(raid, offset)
+                    await self._announce(raid)
 
-    async def _announce(self, raid: Raid, offset: int) -> None:
+    async def _announce(self, raid: Raid) -> None:
         accepted = self.client.store.signups(raid.id, Status.ACCEPTED)
         if not accepted:
             return
         mentions = " ".join(f"<@{s.user_id}>" for s in accepted)
         title = discord.utils.escape_markdown(raid.title)
-        headline = (
-            f"🔔 **{title}** starts <t:{raid.starts_at}:R>"
-            if offset
-            else f"🚀 **{title}** is starting now!"
-        )
+        headline = f"🔔 **{title}** starts <t:{raid.starts_at}:R>"
         try:
             channel = self.client.get_channel(raid.channel_id) or await self.client.fetch_channel(
                 raid.channel_id
