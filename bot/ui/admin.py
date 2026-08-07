@@ -11,12 +11,12 @@ import logging
 
 import discord
 
-from ..config import region_label
+from ..config import WEB_ENABLED, region_label
 from ..data.specs import ROLE_ORDER, Role, get_spec
 from ..emojis import registry
 from ..store import RaidState, Signup, Status
 from .apply import SpecPickerView
-from .common import deny, is_admin, refresh_raid_message, store_of
+from .common import deny, is_admin, refresh_raid_message, request_raid_refresh, store_of
 from .embeds import clamp_title
 from .schedule import (
     format_duration, format_local, is_known_timezone, parse_duration, parse_when,
@@ -88,6 +88,8 @@ class RosterManager(discord.ui.View):
             self.add_item(StatusButton(self, status, style, 3))
         self.add_item(ChangeSpecButton(self))
         self.add_item(RemoveButton(self))
+        if WEB_ENABLED:
+            self.add_item(WebManagerButton(self.raid_id))
         self.add_item(DoneButton())
 
     def summary(self, store) -> discord.Embed:
@@ -146,7 +148,9 @@ class RosterManager(discord.ui.View):
         store = self._store(interaction)
         self.rebuild(store)
         await interaction.response.edit_message(embed=self.summary(store), view=self)
-        await refresh_raid_message(interaction.client, self.raid_id)
+        # Debounced: working through a queue of applicants fires one of these per
+        # click, and Discord rate-limits message edits hard.
+        request_raid_refresh(interaction.client, self.raid_id)
 
 
 class FilterSelect(discord.ui.Select):
@@ -331,6 +335,55 @@ class RemoveButton(_NeedsSelection):
         )
         self.manager.selected_user_id = None
         await self.manager.refresh(interaction)
+
+
+class WebManagerButton(discord.ui.Button):
+    """Hands the clicking admin a signed link to this raid's manager page.
+
+    Deliberately not on the public raid board: components on a normal message
+    are visible to everyone who can see the message, and Discord offers no
+    per-user visibility. Living here - inside an ephemeral, admin-gated panel -
+    is what actually keeps it out of raiders' hands.
+    """
+
+    def __init__(self, raid_id: int, row: int = 4) -> None:
+        self.raid_id = raid_id
+        super().__init__(
+            label="Open manager", emoji="🌐", style=discord.ButtonStyle.primary, row=row
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await send_manager_link(interaction, self.raid_id)
+
+
+async def send_manager_link(interaction: discord.Interaction, raid_id: int) -> None:
+    """Ephemeral message carrying one admin's link, with the sharing warning."""
+    from ..config import WEB_TOKEN_TTL_MINUTES
+    from ..web.server import manager_url
+
+    if not WEB_ENABLED:
+        await deny(
+            interaction,
+            "The web manager isn't configured on this bot. Set `WEB_BASE_URL` in `.env`.",
+        )
+        return
+
+    url = manager_url(raid_id, interaction.user.id)
+    hours = WEB_TOKEN_TTL_MINUTES // 60
+    lifetime = f"{hours}h" if hours else f"{WEB_TOKEN_TTL_MINUTES}m"
+    log.info("raid #%s: issued a manager link to %s", raid_id, interaction.user)
+
+    # The URL is deliberately not embedded in a markdown link - a raid lead who
+    # is about to be told not to share something should be able to see exactly
+    # what it is they are holding.
+    await interaction.response.send_message(
+        f"🌐 **Roster manager — raid #{raid_id}**\n{url}\n\n"
+        f"⚠️ **DO NOT SHARE THIS LINK.** IT LETS ANYONE WHO OPENS IT CHANGE THIS "
+        f"RAID'S ROSTER AS YOU.\n"
+        f"It expires in **{lifetime}** — press the button again for a fresh one "
+        f"rather than forwarding this to anyone.",
+        ephemeral=True,
+    )
 
 
 class DoneButton(discord.ui.Button):

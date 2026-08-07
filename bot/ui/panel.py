@@ -141,3 +141,33 @@ class RaidView(discord.ui.View):
             await deny(interaction, "🔒 Only raid admins can change raid settings.")
             return
         await open_raid_settings(interaction, raid.id)
+
+    @discord.ui.button(
+        label="Open UI", emoji="🌐", style=discord.ButtonStyle.primary,
+        custom_id="raid:web", row=1,
+    )
+    async def web_manager(self, interaction: discord.Interaction, _b: discord.ui.Button) -> None:
+        """Signed link to the web roster manager.
+
+        Discord has no way to show a component to some viewers and not others -
+        anything on a public message is on it for everyone - so the gate is on
+        the response instead. Both branches are ephemeral, so a raider pressing
+        this sees only an explanation, and never anyone else's link.
+        """
+        from .admin import send_manager_link
+
+        raid = await _resolve_raid(interaction)
+        if raid is None:
+            return
+        if not is_admin(interaction.user):
+            await deny(
+                interaction,
+                "🔒 **The roster manager is for raid leads.**\n"
+                "It's where applications get accepted, so it's limited to admins "
+                "and anyone with a raid-lead role.\n\n"
+                "To sign up, use **📝 Apply** on this board. If you *are* a raid "
+                "lead and this still says no, ask an admin to check your roles — "
+                "leads can also open it with `/raid page`.",
+            )
+            return
+        await send_manager_link(interaction, raid.id)

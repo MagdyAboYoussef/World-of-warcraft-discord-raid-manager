@@ -14,7 +14,9 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from .config import DB_PATH, DEFAULT_CAPS
+from .config import (
+    DB_PATH, DEFAULT_CAPS, DEFAULT_RAID_DURATION_MINUTES, WEB_RETENTION_DAYS,
+)
 
 
 class Status(str, Enum):
@@ -139,6 +141,22 @@ class Signup:
     note: str | None
     updated_at: int
     updated_by: int | None
+
+
+def raid_ends_at(raid: Raid) -> int:
+    """Best estimate of when this raid finished, as a unix timestamp.
+
+    Raids are allowed to carry no start time and no duration, so both fall back
+    rather than leaving the raid with no end - a raid that never "ends" would
+    also never expire.
+    """
+    duration = (raid.duration_minutes or DEFAULT_RAID_DURATION_MINUTES) * 60
+    return (raid.starts_at or raid.created_at) + duration
+
+
+def page_expires_at(raid: Raid) -> int:
+    """When this raid's manager page stops answering."""
+    return raid_ends_at(raid) + WEB_RETENTION_DAYS * 86400
 
 
 class Store:

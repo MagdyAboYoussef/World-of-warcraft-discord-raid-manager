@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import TYPE_CHECKING, cast
@@ -103,6 +104,47 @@ async def refresh_raid_message(client: discord.Client, raid_id: int) -> None:
         )
     except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
         log.warning("could not refresh raid #%s message: %s", raid_id, exc)
+
+
+#: How long to wait for more changes before re-rendering the board.
+REFRESH_DEBOUNCE_SECONDS = 1.5
+
+_refresh_tasks: dict[int, asyncio.Task] = {}
+_refresh_dirty: set[int] = set()
+
+
+async def _debounced_refresh(client: discord.Client, raid_id: int) -> None:
+    try:
+        # Re-checking `dirty` after each pass means changes that land *during* a
+        # refresh still get a follow-up render, so the board never settles on a
+        # stale state just because an edit arrived at an awkward moment.
+        while raid_id in _refresh_dirty:
+            _refresh_dirty.discard(raid_id)
+            await asyncio.sleep(REFRESH_DEBOUNCE_SECONDS)
+            await refresh_raid_message(client, raid_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("debounced refresh for raid #%s failed", raid_id)
+    finally:
+        _refresh_tasks.pop(raid_id, None)
+
+
+def request_raid_refresh(client: discord.Client, raid_id: int) -> None:
+    """Ask for a board re-render soon, collapsing bursts into one edit.
+
+    An admin clicking through twenty applicants would otherwise fire twenty
+    message edits in a few seconds, which Discord rate-limits hard - the last
+    few would be delayed or dropped and the board would look stuck. Callers that
+    genuinely need the edit to have landed should await refresh_raid_message.
+    """
+    _refresh_dirty.add(raid_id)
+    task = _refresh_tasks.get(raid_id)
+    if task is not None and not task.done():
+        return
+    # Held in the dict for the task's lifetime, which also keeps it from being
+    # garbage collected mid-flight.
+    _refresh_tasks[raid_id] = asyncio.create_task(_debounced_refresh(client, raid_id))
 
 
 async def deny(interaction: discord.Interaction, message: str) -> None:

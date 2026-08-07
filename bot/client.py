@@ -17,6 +17,7 @@ from .store import Store
 from .ui.common import SAFE_MENTIONS
 from .ui.panel import RaidView
 from .ui.schedule import ReminderTask
+from .web.server import RaidWebServer
 
 log = logging.getLogger(__name__)
 
@@ -35,10 +36,14 @@ class RaidClient(commands.Bot):
         )
         self.store = Store()
         self.reminders = ReminderTask(self)
+        self.web = RaidWebServer(self)
         self._emojis_synced = False
 
     async def setup_hook(self) -> None:
         await self.load_extension("bot.cogs.raid")
+        # Started here rather than in on_ready so it comes up once, not again
+        # after every reconnect.
+        await self.web.start()
         # Re-register the persistent panel so buttons on old messages keep working.
         self.add_view(RaidView())
 
@@ -62,6 +67,7 @@ class RaidClient(commands.Bot):
 
     async def close(self) -> None:
         self.reminders.stop()
+        await self.web.stop()
         self.store.close()
         await super().close()
 

@@ -13,7 +13,7 @@ from ..config import DEFAULT_CAPS, PRIMARY_REGIONS
 from ..data.specs import ROLE_ORDER, get_spec
 from ..emojis import registry
 from ..store import Status
-from ..ui.admin import open_raid_settings, open_roster_manager
+from ..ui.admin import open_raid_settings, open_roster_manager, send_manager_link
 from ..ui.common import deny, is_admin
 
 if TYPE_CHECKING:
@@ -199,6 +199,14 @@ class RaidCog(commands.Cog):
         if raid:
             await open_roster_manager(interaction, raid.id)
 
+    @raid.command(name="page", description="Get a private link to the web roster manager (admin only)")
+    @app_commands.describe(raid_id="Defaults to the most recent open raid")
+    @admin_only()
+    async def page(self, interaction: discord.Interaction, raid_id: int | None = None) -> None:
+        raid = await self._resolve(interaction, raid_id)
+        if raid:
+            await send_manager_link(interaction, raid.id)
+
     @raid.command(name="settings", description="Edit title, time, targets, lock (admin only)")
     @app_commands.describe(raid_id="Defaults to the most recent open raid")
     @admin_only()
@@ -328,7 +336,7 @@ class RaidCog(commands.Cog):
                 "Times are entered and shown in **server time**. The board also shows a "
                 "live countdown and each player's own local time, so nobody has to do "
                 "timezone maths.\n"
-                "The accepted roster gets pinged at **1 hour**, **10 minutes**, and at start."
+                "The accepted roster gets pinged **10 minutes** before start."
             ),
             inline=False,
         )

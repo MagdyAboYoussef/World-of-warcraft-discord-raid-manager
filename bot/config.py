@@ -76,6 +76,31 @@ REALM_ZONES: dict[str, str] = {
 RAID_TIMEZONE: str = os.getenv("RAID_TIMEZONE", "EU").strip()
 
 
+#: --------------------------------------------------------------- web manager
+#:
+#: The roster manager page. Off unless WEB_BASE_URL is set, so an existing
+#: install keeps behaving exactly as it did until its owner opts in.
+WEB_BASE_URL: str = os.getenv("WEB_BASE_URL", "").strip().rstrip("/")
+WEB_ENABLED: bool = bool(WEB_BASE_URL)
+
+#: Bind to loopback by default. TLS and the public port belong to a reverse
+#: proxy - exposing aiohttp directly would serve the roster over plain HTTP,
+#: and these links are bearer credentials.
+WEB_BIND: str = os.getenv("WEB_BIND", "127.0.0.1").strip()
+WEB_PORT: int = int(os.getenv("WEB_PORT", "8080"))
+
+#: How long an issued link stays usable. Short, because anyone holding the URL
+#: holds roster control for that raid.
+WEB_TOKEN_TTL_MINUTES: int = int(os.getenv("WEB_TOKEN_TTL_MINUTES", "180"))
+
+#: A raid's page stops answering this many days after the raid ends.
+WEB_RETENTION_DAYS: int = int(os.getenv("WEB_RETENTION_DAYS", "30"))
+
+#: Assumed length of a raid that never had a duration set, used only to work
+#: out when it "ended" for expiry purposes.
+DEFAULT_RAID_DURATION_MINUTES: int = 180
+
+
 def resolve_timezone(name: str | None = None) -> str:
     """Map a region shorthand to its IANA zone; pass IANA names through.
 

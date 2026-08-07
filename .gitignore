@@ -19,3 +19,6 @@ __pycache__/
 # not redistributed.
 assets/icons/
 assets/contact_sheet.png
+
+# Generated UI preview (python -m tools.build_preview)
+/preview/

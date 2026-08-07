@@ -33,7 +33,7 @@ The first time you make a raid, set `timezone:` to your region — `EU`, `NA`,
 `KR`, `TW` or `OCE`. After that every new raid remembers it, so you never have
 to touch it again.
 
-The accepted roster gets pinged an hour before, ten minutes before, and at start.
+The accepted roster gets pinged ten minutes before start.
 
 **How people sign up**
 
@@ -155,12 +155,60 @@ Restarts are safe: the buttons on existing raid boards use static IDs so they
 keep working, and reminders are claimed in the database, so a restart in the
 middle of raid night won't re-ping everybody.
 
+## Web roster manager
+
+Accepting people one dropdown at a time gets slow once a raid has twenty
+applicants. The **🌐 Open UI** button on the board hands a raid lead a private,
+expiring link to a page showing all four roles side by side, every applicant in
+them, and live buff coverage — with keyboard shortcuts, so a full queue is one
+keypress per person.
+
+It's off by default. To turn it on, set `WEB_BASE_URL` in `.env` to the public
+HTTPS origin you'll serve it from, and put a TLS proxy in front:
+
+```
+wow-raid-manager.magdy.org {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+That's a whole Caddyfile — Caddy gets the certificate itself. Point an `A`
+record at the host, open 443, and leave the bot bound to loopback. Then add to
+the systemd unit above:
+
+```ini
+# aiohttp binds a port, so wait for real connectivity, not just the network
+After=network-online.target
+Wants=network-online.target
+```
+
+Everything else in `.env.example` under *web manager* has a working default.
+
+**How access works.** There is no login. The link itself is the credential: it
+is signed with a server-side secret and names one raid, one Discord user, and
+one expiry, none of which the holder can edit. Every request re-checks that the
+user it was issued to still holds an admin role, so losing the role
+immediately kills any link already handed out. Links expire after 3 hours by
+default, and a raid's page stops answering 30 days after the raid ends —
+that's an access gate, not a delete, so your roster history stays intact.
+
+Because the link is a bearer credential, the bot shouts about not sharing it
+and the page repeats the warning. Press the button again for a fresh one rather
+than forwarding an old one.
+
+The **🌐 Open UI** button sits on the public board next to the other admin
+buttons. Discord has no way to show a component to some viewers and not others,
+so raiders can see it too — pressing it gets them a private note explaining
+it's for raid leads and pointing them at **📝 Apply** instead. Nobody ever sees
+anyone else's link.
+
 ## Command reference
 
 | Command | Who | What |
 |---|---|---|
 | `/raid create` | admin | Post a signup board. `title` required; `description`, `when`, `duration`, `timezone` and per-role targets optional |
 | `/raid manage` | admin | Roster manager (same as the 🛠️ button) |
+| `/raid page` | admin | Private link to the web roster manager (same as the 🌐 button) |
 | `/raid settings` | admin | Title, description, time, duration, targets, lock, cancel |
 | `/raid list` | anyone | Recent raids with jump links |
 | `/raid repost` | admin | Post the board again if it's buried |
@@ -257,9 +305,19 @@ is how you check that by eye.
 ```bash
 python -m tools.smoke_test     # data integrity, buff maths, store, embed rendering
 python -m tools.import_check   # imports, custom_ids, Discord's 25-option/5-row limits
+python -m tools.web_check      # link signing, auth, routes and mutations
 ```
 
-Both run offline with no token.
+All three run offline with no token. `tools.web_check` drives the real aiohttp
+app against a temporary database and a stand-in bot.
+
+```bash
+python -m tools.build_preview  # writes preview/roster-preview.html
+```
+
+An interactive preview of the manager page built from the real stylesheet and
+the real client script with the network stubbed, so it can't drift from what
+the bot serves. Open it in a browser — no bot, token or server needed.
 
 ## Layout
 
@@ -279,8 +337,12 @@ bot/
   ui/admin.py        roster manager and raid settings
   ui/schedule.py     time/duration parsing, autocomplete, reminders
   cogs/raid.py       slash commands
+  web/tokens.py      signed, expiring, single-raid links
+  web/server.py      aiohttp app: auth, JSON state, roster mutations
+  web/page.py        the manager page — one file, no build step
 tools/               icon fetch/probe/contact-sheet, smoke test, import check,
-                     db inspector, timezone explainer
+                     web check, UI preview builder, db inspector,
+                     timezone explainer
 ```
 
 ## Security notes
@@ -305,6 +367,18 @@ input — anyone in a guild it joins can put text into them.
   non-admin.
 - **No privileged intents.** The bot cannot read message content or the member
   list.
+- **Manager links are signed, scoped and re-checked.** HMAC-SHA256 over
+  `raid_id.user_id.expiry`, verified with a constant-time compare, so none of
+  the three can be edited by the holder. Admin status is re-checked against
+  Discord on every request rather than trusted from when the link was issued.
+- **The manager page never leaks its own URL.** The token is in the path, so
+  every response sets `Referrer-Policy: no-referrer` and outbound links carry
+  `rel="noreferrer"` — otherwise clicking a Warcraft Logs link would hand
+  warcraftlogs.com a working admin URL. Request paths are kept out of the
+  access log for the same reason.
+- **The page renders user text as text.** Character names and notes are written
+  with `textContent`, never `innerHTML`, under a nonce-based CSP that blocks
+  inline and third-party script outright.
 - Only `.env` holds secrets and it is gitignored; `.env.example` is the
   template.
 
