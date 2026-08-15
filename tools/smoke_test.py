@@ -361,6 +361,53 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
 
     store.close()
 
+print("\n[7b] combined DPS target")
+with tempfile.TemporaryDirectory() as tmp:
+    from bot.data import targets as T  # noqa: E402
+
+    store = Store(Path(tmp) / "combined.sqlite3")
+    raid = store.create_raid(
+        guild_id=1, channel_id=1, title="Combined night", description=None,
+        leader_id=1, starts_at=None, caps={"tank": 2, "healer": 4, "dps": 14},
+    )
+    for index, (name, spec_key) in enumerate(
+        [("Blocky", "pal_prot"), ("Mender", "priest_holy"),
+         ("Chop", "warr_arms"), ("Bolt", "mage_fire"), ("Stab", "rogue_sub")]
+    ):
+        store.upsert_signup(
+            raid_id=raid.id, user_id=100 + index, character_name=name, logs_url=None,
+            spec_key=spec_key, status=Status.ACCEPTED,
+        )
+    raid = store.get_raid(raid.id)
+
+    check("detected as combined", T.is_combined(raid.caps))
+    check("three targets", len(T.targets(raid.caps)) == 3)
+    check("summary reads 2 / 4 / 14", T.summary(raid.caps) == "2 / 4 / 14", T.summary(raid.caps))
+    check("raid size is 20", T.raid_size(raid.caps) == 20)
+    check("melee has no cap of its own", T.role_cap(raid.caps, Role.MELEE) is None)
+    check("tank keeps its cap", T.role_cap(raid.caps, Role.TANK) == 2)
+
+    embed = build_raid_embed(raid, store.signups(raid.id))
+    names = [f.name for f in embed.fields]
+    check("roster still splits melee from ranged",
+          any("Melee" in n for n in names) and any("Ranged" in n for n in names))
+    check("melee header carries a bare count, not x/0",
+          any(n.endswith("(2)") for n in names), str(names[:4]))
+    check("tank header still shows its target", any(n.endswith("(1/2)") for n in names))
+    check("combined target is stated", "DPS **3/14**" in embed.description, embed.description)
+    check("footer counts against the combined size", "5/20 accepted" in embed.footer.text)
+
+    # A four-target raid must render exactly as it always did.
+    plain = store.create_raid(
+        guild_id=1, channel_id=1, title="Plain", description=None, leader_id=1,
+        starts_at=None, caps={"tank": 2, "healer": 4, "melee": 7, "ranged": 7},
+    )
+    plain_embed = build_raid_embed(store.get_raid(plain.id), [])
+    check("four-target board unchanged", "🎯 Targets" not in (plain_embed.description or ""))
+    check("four-target headers keep x/y",
+          all("/" in f.name for f in plain_embed.fields[:4]))
+    store.close()
+
 print("\n[8] hardening: hostile input and Discord's hard limits")
 from bot.ui.common import SAFE_MENTIONS, normalise_logs_url  # noqa: E402
 from bot.ui.embeds import (  # noqa: E402

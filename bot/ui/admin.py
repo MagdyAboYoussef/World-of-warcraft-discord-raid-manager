@@ -12,6 +12,7 @@ import logging
 import discord
 
 from ..config import WEB_ENABLED, region_label
+from ..data import targets as targets_data
 from ..data.specs import ROLE_ORDER, Role, get_spec
 from ..emojis import registry
 from ..store import RaidState, Signup, Status
@@ -106,20 +107,22 @@ class RosterManager(discord.ui.View):
         )
 
         accepted = [s for s in signups if s.status is Status.ACCEPTED]
-        role_counts = dict.fromkeys(ROLE_ORDER, 0)
-        for signup in accepted:
-            spec = get_spec(signup.spec_key)
-            if spec:
-                role_counts[spec.role] += 1
-        embed.add_field(
-            name="Comp vs targets",
-            value="\n".join(
-                f"{registry.role(r.value)} {r.label}: **{role_counts[r]}**/{raid.caps.get(r.value, 0)}"
-                + ("  ⚠️" if role_counts[r] < raid.caps.get(r.value, 0) else "")
-                for r in ROLE_ORDER
-            ),
-            inline=False,
+        counts = targets_data.role_counts(
+            [spec.role if (spec := get_spec(s.spec_key)) else None for s in accepted]
         )
+        lines = []
+        for target in targets_data.targets(raid.caps):
+            have = target.accepted(counts)
+            # Combined DPS has no role emoji of its own; the per-role breakdown
+            # underneath is what tells a lead which half they are short of.
+            icon = registry.role(target.key) if len(target.roles) == 1 else "⚔️"
+            line = f"{icon} {target.label}: **{have}**/{target.cap}"
+            if len(target.roles) > 1:
+                line += " (" + ", ".join(
+                    f"{r.label} {counts.get(r, 0)}" for r in target.roles
+                ) + ")"
+            lines.append(line + ("  ⚠️" if have < target.cap else ""))
+        embed.add_field(name="Comp vs targets", value="\n".join(lines), inline=False)
 
         if self.selected_user_id:
             selected = store.get_signup(self.raid_id, self.selected_user_id)
@@ -417,14 +420,17 @@ class CapsModal(discord.ui.Modal, title="Role targets"):
         super().__init__()
         self.raid_id = raid_id
         self.inputs: dict[str, discord.ui.TextInput] = {}
-        for role in ROLE_ORDER:
+        # Follows whichever mode the raid is already in: a combined-DPS raid
+        # gets three boxes, a four-target raid gets four. Switching modes is a
+        # different decision and belongs to /raid create.
+        for target in targets_data.targets(caps):
             field = discord.ui.TextInput(
-                label=role.label,
-                default=str(caps.get(role.value, 0)),
+                label=target.label,
+                default=str(target.cap),
                 max_length=2,
                 required=True,
             )
-            self.inputs[role.value] = field
+            self.inputs[target.key] = field
             self.add_item(field)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
@@ -607,8 +613,8 @@ async def open_raid_settings(interaction: discord.Interaction, raid_id: int) -> 
         description=(
             f"State: **{raid.state.value}**\n"
             f"Targets: "
-            + ", ".join(f"{r.label} {raid.caps.get(r.value, 0)}" for r in ROLE_ORDER)
-            + f"\nSize: **{sum(raid.caps.values())}**\n"
+            + ", ".join(f"{t.label} {t.cap}" for t in targets_data.targets(raid.caps))
+            + f"\nSize: **{targets_data.raid_size(raid.caps)}**\n"
             + (
                 f"Starts: <t:{raid.starts_at}:F> (<t:{raid.starts_at}:R>)"
                 if raid.starts_at

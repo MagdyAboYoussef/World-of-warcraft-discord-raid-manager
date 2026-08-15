@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from bot.data import targets as targets_data  # noqa: E402
 from bot.data.buffs import BUFFS  # noqa: E402
 from bot.data.specs import (  # noqa: E402
     CLASS_COLORS, CLASS_ICONS, ROLE_ORDER, SPECS, get_spec,
@@ -74,7 +75,9 @@ def build_state() -> dict:
             "updated_at": 1770000000 + index * 60,
         })
 
-    caps = {"tank": 2, "healer": 4, "melee": 7, "ranged": 7}
+    # Combined-DPS mode, so the preview shows the 2 / 4 / 14 case: melee and
+    # ranged stay separate in the roster but share one target.
+    caps = {"tank": 2, "healer": 4, "dps": 14}
     return {
         "raid": {
             "id": 17,
@@ -87,10 +90,29 @@ def build_state() -> dict:
             "region": "EU",
             "expires_at": 0,
         },
+        # Built through the real helpers so the preview can't disagree with the
+        # server about what a combined target looks like.
         "roles": [
-            {"key": r.value, "label": r.label, "cap": caps[r.value], "accepted": 0}
+            {
+                "key": r.value,
+                "label": r.label,
+                "cap": targets_data.role_cap(caps, r),
+                "accepted": 0,
+            }
             for r in ROLE_ORDER
         ],
+        "targets": [
+            {
+                "key": t.key,
+                "label": t.label,
+                "cap": t.cap,
+                "accepted": 0,
+                "roles": [r.value for r in t.roles],
+            }
+            for t in targets_data.targets(caps)
+        ],
+        "combined_dps": targets_data.is_combined(caps),
+        "raid_size": targets_data.raid_size(caps),
         "signups": signups,
         "buffs": [],
         "statuses": [
@@ -189,6 +211,9 @@ function recompute() {
   const accepted = STATE.signups.filter((s) => s.status === 'accepted');
   for (const role of STATE.roles) {
     role.accepted = accepted.filter((s) => s.role === role.key).length;
+  }
+  for (const target of STATE.targets) {
+    target.accepted = accepted.filter((s) => target.roles.includes(s.role)).length;
   }
   const keys = accepted.map((s) => s.spec_key);
   STATE.buffs = BUFFS.map((buff) => {

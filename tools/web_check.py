@@ -29,6 +29,7 @@ os.environ["WEB_RETENTION_DAYS"] = "30"
 from aiohttp.test_utils import TestClient, TestServer  # noqa: E402
 from aiohttp import web as aioweb  # noqa: E402
 
+from bot.data import targets as targets_data  # noqa: E402
 from bot.store import Status, Store, page_expires_at  # noqa: E402
 from bot.web import server as websrv, tokens  # noqa: E402
 
@@ -215,7 +216,48 @@ async def main() -> None:
     res = await client.post(f"/r/{good}/status", data="not json")
     check("non-JSON body -> 400", res.status == 400, f"got {res.status}")
 
-    print("\n[7] retirement")
+    print("\n[7] combined DPS target")
+    combined = store.create_raid(
+        guild_id=GUILD, channel_id=42, title="Combined", description=None,
+        leader_id=ADMIN, starts_at=now + 3600, duration_minutes=180, timezone="EU",
+        caps={"tank": 2, "healer": 4, "dps": 14},
+    )
+    for user_id, name, spec in (
+        (5001, "Chopper", "warr_arms"),      # melee
+        (5002, "Bolt", "mage_fire"),         # ranged
+        (5003, "Blocky", "pal_prot"),        # tank
+    ):
+        store.upsert_signup(
+            raid_id=combined.id, user_id=user_id, character_name=name, logs_url=None,
+            spec_key=spec, status=Status.ACCEPTED,
+        )
+    ctoken = tokens.issue(combined.id, ADMIN)
+    cstate = await (await client.get(f"/r/{ctoken}/state")).json()
+
+    roles = {r["key"]: r for r in cstate["roles"]}
+    check("roster still splits into four roles", len(cstate["roles"]) == 4)
+    check("melee has no cap of its own", roles["melee"]["cap"] is None)
+    check("ranged has no cap of its own", roles["ranged"]["cap"] is None)
+    check("tank keeps its own cap", roles["tank"]["cap"] == 2)
+    check("melee still counted separately", roles["melee"]["accepted"] == 1)
+    check("ranged still counted separately", roles["ranged"]["accepted"] == 1)
+
+    tg = {t["key"]: t for t in cstate["targets"]}
+    check("three targets, not four", len(cstate["targets"]) == 3)
+    check("dps target is the combined cap", tg["dps"]["cap"] == 14)
+    check("dps target sums melee and ranged", tg["dps"]["accepted"] == 2)
+    check("dps target names both roles", sorted(tg["dps"]["roles"]) == ["melee", "ranged"])
+    check("flagged as combined", cstate["combined_dps"] is True)
+    check("raid size adds up", cstate["raid_size"] == 20)
+    check("summary reads 2 / 4 / 14", targets_data.summary(combined.caps) == "2 / 4 / 14")
+
+    plain = await (await client.get(f"/r/{good}/state")).json()
+    check("four-target raids unaffected", plain["combined_dps"] is False
+          and len(plain["targets"]) == 4
+          and all(r["cap"] is not None for r in plain["roles"]))
+    check("four-target size still right", plain["raid_size"] == 20)
+
+    print("\n[8] retirement")
     old = store.create_raid(
         guild_id=GUILD, channel_id=42, title="Last tier", description=None,
         leader_id=ADMIN, starts_at=now - 40 * 86400, duration_minutes=180, timezone="EU",

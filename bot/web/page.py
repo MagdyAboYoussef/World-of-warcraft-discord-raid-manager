@@ -78,6 +78,7 @@ img.mini {
 
 /* Final roster: what the raid actually looks like right now, before any of the
    pending noise below it. */
+#targets { margin-bottom: 12px; }
 .roster { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 9px 14px; }
 .rlabel { display: flex; align-items: baseline; gap: 7px; padding-top: 3px; }
 .rlabel span:first-child {
@@ -264,6 +265,12 @@ function el(tag, cls, text) {
   return node;
 }
 
+// A null cap means the role has no target of its own - melee and ranged under a
+// combined DPS target. That is not the same as a target of zero, so it shows a
+// bare count and never an under-target warning.
+const tally = (e) => (e.cap === null ? String(e.accepted) : e.accepted + ' / ' + e.cap);
+const isUnder = (e) => e.cap !== null && e.accepted < e.cap;
+
 function mini(slug, alt) {
   const img = el('img', 'mini');
   img.src = iconUrl(slug);
@@ -399,18 +406,31 @@ function step(root, delta) {
 
 function renderRoster() {
   const accepted = state.signups.filter((s) => s.status === 'accepted');
-  const size = state.roles.reduce((total, role) => total + role.cap, 0);
-  $('#roster-count').textContent = accepted.length + ' / ' + size;
+  $('#roster-count').textContent = accepted.length + ' / ' + state.raid_size;
+
+  // Only in combined mode. With four separate targets each row already states
+  // its own, and repeating them here would just be noise.
+  const strip = $('#targets');
+  strip.textContent = '';
+  strip.style.display = state.combined_dps ? '' : 'none';
+  if (state.combined_dps) {
+    for (const target of state.targets) {
+      strip.appendChild(
+        el('span', 'chip ' + (isUnder(target) ? 'missing' : 'covered'),
+           target.label + ' ' + target.accepted + ' / ' + target.cap),
+      );
+    }
+  }
 
   const roster = $('#roster');
   roster.textContent = '';
   for (const role of state.roles) {
-    const under = role.accepted < role.cap;
+    const under = isUnder(role);
 
     const label = el('div', 'rlabel');
     label.append(
       el('span', null, role.label),
-      el('span', 'count ' + (under ? 'under' : 'full'), role.accepted + ' / ' + role.cap),
+      el('span', 'count ' + (under ? 'under' : 'full'), tally(role)),
     );
 
     const members = el('div', 'members');
@@ -482,17 +502,18 @@ function renderBoard() {
     const col = el('div', 'col');
     const head = el('h3');
     head.appendChild(el('span', null, role.label));
-    const under = role.accepted < role.cap;
-    head.appendChild(
-      el('span', 'count ' + (under ? 'under' : 'full'), role.accepted + ' / ' + role.cap),
-    );
+    const under = isUnder(role);
+    head.appendChild(el('span', 'count ' + (under ? 'under' : 'full'), tally(role)));
     col.appendChild(head);
 
-    const bar = el('div', 'bar');
-    const fill = el('i', under ? 'under' : null);
-    fill.style.width = Math.min(100, role.cap ? (role.accepted / role.cap) * 100 : 0) + '%';
-    bar.appendChild(fill);
-    col.appendChild(bar);
+    // No target, no progress bar - there is nothing to be a fraction of.
+    if (role.cap !== null) {
+      const bar = el('div', 'bar');
+      const fill = el('i', under ? 'under' : null);
+      fill.style.width = Math.min(100, role.cap ? (role.accepted / role.cap) * 100 : 0) + '%';
+      bar.appendChild(fill);
+      col.appendChild(bar);
+    }
 
     let members = state.signups.filter((s) => s.role === role.key);
     if (filter === 'pending') members = members.filter((s) => s.status === 'pending');
@@ -623,6 +644,7 @@ def render_page(title: str) -> web.Response:
 
   <div class="panel">
     <h2>Final roster — <span class="n" id="roster-count"></span> accepted</h2>
+    <div class="chips" id="targets"></div>
     <div class="roster" id="roster"></div>
   </div>
 

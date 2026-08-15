@@ -35,6 +35,22 @@ to touch it again.
 
 The accepted roster gets pinged ten minutes before start.
 
+**Role targets, and not over-committing to a split**
+
+By default you set four targets — `tanks`, `healers`, `melee`, `ranged`. If you
+don't actually care how the DPS breaks down, pass `dps:` instead and you get one
+combined number:
+
+`/raid create title:"Voidspire — Mythic" tanks:2 healers:4 dps:14`
+
+The board then reads **2 / 4 / 14**. Melee and ranged are still listed
+separately everywhere people appear — you can always see who's what — but
+neither gets flagged as "under target" on its own, so a night that turns up
+9 melee and 5 ranged is simply a full raid rather than two warnings.
+
+`dps` and `melee`/`ranged` are mutually exclusive; set one or the other. Raids
+made before this existed keep their four targets and are untouched.
+
 **How people sign up**
 
 They hit **Apply** on the board and give a character name, a Warcraft Logs link
@@ -206,7 +222,7 @@ anyone else's link.
 
 | Command | Who | What |
 |---|---|---|
-| `/raid create` | admin | Post a signup board. `title` required; `description`, `when`, `duration`, `timezone` and per-role targets optional |
+| `/raid create` | admin | Post a signup board. `title` required; `description`, `when`, `duration`, `timezone` and role targets optional |
 | `/raid manage` | admin | Roster manager (same as the 🛠️ button) |
 | `/raid page` | admin | Private link to the web roster manager (same as the 🌐 button) |
 | `/raid settings` | admin | Title, description, time, duration, targets, lock, cancel |
@@ -330,6 +346,7 @@ bot/
   emojis.py          application-emoji upload + lookup
   data/specs.py      40 specs -> class, role, icon, colour
   data/buffs.py      buff/debuff/utility rules and coverage evaluation
+  data/targets.py    role targets and the combined-DPS mode
   ui/common.py       permissions, URL validation, mention policy, refresh
   ui/embeds.py       roster embed + buff panel + Discord limit guards
   ui/panel.py        persistent Apply/Bench/Absent/Withdraw/admin buttons

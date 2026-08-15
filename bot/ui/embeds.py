@@ -9,6 +9,7 @@ import discord
 
 from ..config import region_label
 from ..data import buffs as buffs_data
+from ..data import targets as targets_data
 from ..data.specs import ROLE_ORDER, get_spec
 from ..emojis import registry
 from ..store import Raid, RaidState, Signup, Status
@@ -185,7 +186,7 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         by_status[signup.status].append(signup)
 
     accepted = by_status[Status.ACCEPTED]
-    total_cap = sum(raid.caps.values())
+    total_cap = targets_data.raid_size(raid.caps)
 
     color, title_prefix = _raid_appearance(raid, len(accepted))
     title = f"{title_prefix}{raid.title}"
@@ -210,6 +211,21 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         )
     description_parts.append(f"👑 Raid Lead: <@{raid.leader_id}>")
 
+    if targets_data.is_combined(raid.caps):
+        # Only shown in combined mode. Without it the melee and ranged fields
+        # below carry a bare count and the DPS target would appear nowhere;
+        # four-target raids already state theirs in every field header.
+        counts = targets_data.role_counts(
+            [spec.role if (spec := _spec_of(s)) else None for s in accepted]
+        )
+        description_parts.append(
+            "🎯 Targets: "
+            + " · ".join(
+                f"{t.label} **{t.accepted(counts)}/{t.cap}**"
+                for t in targets_data.targets(raid.caps)
+            )
+        )
+
     embed = discord.Embed(
         title=clamp_title(title),
         description=clamp("\n\n".join(description_parts), DESCRIPTION_LIMIT),
@@ -219,10 +235,13 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
     # --- comp, one field per role ---
     for role in ROLE_ORDER:
         members = _sorted([s for s in accepted if (sp := _spec_of(s)) and sp.role is role])
-        cap = raid.caps.get(role.value, 0)
+        # None means this role has no target of its own (combined DPS), so show
+        # a bare count rather than inventing a 0 to divide by.
+        cap = targets_data.role_cap(raid.caps, role)
+        tally = f"{len(members)}/{cap}" if cap is not None else str(len(members))
         icon = registry.role(role.value)
         embed.add_field(
-            name=f"{icon} {role.label} ({len(members)}/{cap})",
+            name=f"{icon} {role.label} ({tally})",
             value=_fit([_roster_line(m) for m in members]),
             inline=False,
         )

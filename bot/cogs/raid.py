@@ -60,8 +60,9 @@ class RaidCog(commands.Cog):
         timezone="Your region — EU, NA, KR, TW, OCE. Defaults to your last raid's",
         tanks="Target tank count",
         healers="Target healer count",
-        melee="Target melee DPS count",
-        ranged="Target ranged DPS count",
+        melee="Target melee DPS count (leave blank if you set dps)",
+        ranged="Target ranged DPS count (leave blank if you set dps)",
+        dps="One combined DPS target instead of separate melee/ranged ones",
     )
     @admin_only()
     async def create(
@@ -76,9 +77,31 @@ class RaidCog(commands.Cog):
         timezone: str | None = None,
         tanks: app_commands.Range[int, 0, 40] = DEFAULT_CAPS["tank"],
         healers: app_commands.Range[int, 0, 40] = DEFAULT_CAPS["healer"],
-        melee: app_commands.Range[int, 0, 40] = DEFAULT_CAPS["melee"],
-        ranged: app_commands.Range[int, 0, 40] = DEFAULT_CAPS["ranged"],
+        # These default to None rather than DEFAULT_CAPS so that "left blank"
+        # can be told apart from "deliberately set", which is what makes the
+        # clash with `dps` detectable instead of silently ignored.
+        melee: app_commands.Range[int, 0, 40] | None = None,
+        ranged: app_commands.Range[int, 0, 40] | None = None,
+        dps: app_commands.Range[int, 0, 80] | None = None,
     ) -> None:
+        if dps is not None and (melee is not None or ranged is not None):
+            await interaction.response.send_message(
+                "Set **either** `dps` **or** `melee`/`ranged`, not both — `dps` is the "
+                "combined target that replaces the two.",
+                ephemeral=True,
+            )
+            return
+
+        if dps is not None:
+            caps = {"tank": tanks, "healer": healers, "dps": dps}
+        else:
+            caps = {
+                "tank": tanks,
+                "healer": healers,
+                "melee": DEFAULT_CAPS["melee"] if melee is None else melee,
+                "ranged": DEFAULT_CAPS["ranged"] if ranged is None else ranged,
+            }
+
         store = self.bot.store
         # Default to whatever this guild's last raid used, so a raid lead sets
         # their region once rather than on every raid.
@@ -120,7 +143,7 @@ class RaidCog(commands.Cog):
             starts_at=starts_at,
             duration_minutes=duration_minutes,
             timezone=tz_name,
-            caps={"tank": tanks, "healer": healers, "melee": melee, "ranged": ranged},
+            caps=caps,
         )
 
         await interaction.response.send_message(

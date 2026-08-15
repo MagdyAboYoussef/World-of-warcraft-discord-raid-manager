@@ -22,6 +22,7 @@ from aiohttp import web
 from ..config import (
     WEB_BASE_URL, WEB_BIND, WEB_ENABLED, WEB_PORT, region_label,
 )
+from ..data import targets as targets_data
 from ..data.buffs import evaluate as evaluate_buffs
 from ..data.specs import CLASS_COLORS, CLASS_ICONS, ROLE_ORDER, SPECS, Role, get_spec
 from ..store import Raid, RaidState, Status, page_expires_at
@@ -246,9 +247,7 @@ class RaidWebServer:
             for s in signups
             if s.status is Status.ACCEPTED and (spec := get_spec(s.spec_key))
         ]
-        role_counts = dict.fromkeys((r.value for r in ROLE_ORDER), 0)
-        for spec in accepted_specs:
-            role_counts[spec.role.value] += 1
+        counts = targets_data.role_counts([spec.role for spec in accepted_specs])
 
         return {
             "raid": {
@@ -262,15 +261,30 @@ class RaidWebServer:
                 "region": region_label(raid.timezone),
                 "expires_at": page_expires_at(raid),
             },
+            # Always all four: the roster stays split by role even when the
+            # targets don't. `cap` is null for a role with no target of its own,
+            # which the page renders as a bare count instead of a progress bar.
             "roles": [
                 {
                     "key": role.value,
                     "label": role.label,
-                    "cap": raid.caps.get(role.value, 0),
-                    "accepted": role_counts[role.value],
+                    "cap": targets_data.role_cap(raid.caps, role),
+                    "accepted": counts[role],
                 }
                 for role in ROLE_ORDER
             ],
+            "targets": [
+                {
+                    "key": target.key,
+                    "label": target.label,
+                    "cap": target.cap,
+                    "accepted": target.accepted(counts),
+                    "roles": [role.value for role in target.roles],
+                }
+                for target in targets_data.targets(raid.caps)
+            ],
+            "combined_dps": targets_data.is_combined(raid.caps),
+            "raid_size": targets_data.raid_size(raid.caps),
             "signups": [self._signup_json(s) for s in signups],
             "buffs": [
                 {
