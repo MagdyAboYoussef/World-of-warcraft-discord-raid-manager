@@ -1,0 +1,38 @@
+#!/bin/sh
+# Refuse any commit not authored by a GitHub noreply address.
+#
+# This repository is public and a commit's author address survives a history
+# rewrite: the object stays in the host's store and is served by SHA long after
+# the branch stops referencing it. Catching it here is the only cheap moment.
+#
+# Deliberately an allowlist. Naming the addresses to avoid would write them into
+# the repository, which is precisely what this exists to prevent.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+
+allowed='@users\.noreply\.github\.com$'
+status=0
+
+for role in AUTHOR COMMITTER; do
+    ident=$(git var "GIT_${role}_IDENT")
+    email=$(printf '%s' "$ident" | sed -n 's/.*<\(.*\)>.*/\1/p')
+
+    if ! printf '%s' "$email" | grep -Eq "$allowed"; then
+        echo "pre-commit: refusing to commit — ${role} address is not a noreply alias." >&2
+        status=1
+    fi
+done
+
+if [ "$status" -ne 0 ]; then
+    cat >&2 <<'EOF'
+
+Set this repository's identity before committing:
+
+    git config user.email 'USERNAME@users.noreply.github.com'
+    git config user.name  'USERNAME'
+
+Find your exact noreply address under GitHub → Settings → Emails.
+EOF
+fi
+
+exit "$status"
