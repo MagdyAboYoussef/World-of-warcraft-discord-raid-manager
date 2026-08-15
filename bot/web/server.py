@@ -60,7 +60,8 @@ class RaidWebServer:
         self.bot = bot
         self._runner: web.AppRunner | None = None
         self._admin_cache: dict[tuple[int, int], tuple[float, bool]] = {}
-        self._hits: dict[str, list[float]] = {}
+        self._hits: dict[tuple[int, int], list[float]] = {}
+        self._hits_pruned = time.monotonic()
 
     # ------------------------------------------------------------- lifecycle
 
@@ -97,8 +98,27 @@ class RaidWebServer:
 
     # ------------------------------------------------------------------ auth
 
-    def _rate_limit(self, key: str) -> None:
+    def _rate_limit(self, key: tuple[int, int]) -> None:
+        """Throttle one link holder. Only ever called with a verified token.
+
+        Keying this on anything an unauthenticated caller controls - the raw
+        token, say - would be worse than useless: every random string would open
+        its own bucket, so the limiter would never fire for the flood it exists
+        to stop, while the bucket dict grew without bound until the process ran
+        out of memory. Keyed on the verified (raid, user) pair, the number of
+        buckets is bounded by the number of people actually holding links.
+        """
         now = time.monotonic()
+        if now - self._hits_pruned > RATE_LIMIT_WINDOW:
+            # Admins come and go; without this their buckets accumulate for the
+            # lifetime of the process.
+            self._hits = {
+                k: recent
+                for k, times in self._hits.items()
+                if (recent := [t for t in times if now - t < RATE_LIMIT_WINDOW])
+            }
+            self._hits_pruned = now
+
         hits = [t for t in self._hits.get(key, ()) if now - t < RATE_LIMIT_WINDOW]
         if len(hits) >= RATE_LIMIT_REQUESTS:
             self._hits[key] = hits
@@ -133,12 +153,13 @@ class RaidWebServer:
         return allowed
 
     async def _authorise(self, request: web.Request) -> tuple[tokens.Claims, Raid]:
-        raw = request.match_info["token"]
-        self._rate_limit(raw[:24])
-
-        claims = tokens.verify(raw)
+        # Verified before anything else is touched. Signature checking is pure
+        # CPU with no allocation that outlives the request, so an unauthenticated
+        # caller cannot make this handler accumulate state of any kind.
+        claims = tokens.verify(request.match_info["token"])
         if claims is None:
             raise _Denied(401, "This link is invalid or has expired. Ask the bot for a new one.")
+        self._rate_limit((claims.raid_id, claims.user_id))
 
         raid = self.bot.store.get_raid(claims.raid_id)
         if raid is None:

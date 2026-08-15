@@ -417,6 +417,12 @@ input — anyone in a guild it joins can put text into them.
 - **The page renders user text as text.** Character names and notes are written
   with `textContent`, never `innerHTML`, under a nonce-based CSP that blocks
   inline and third-party script outright.
+- **An unauthenticated request allocates nothing.** The signature is checked
+  before any other work, and the flood guard is keyed on the verified
+  `(raid, user)` pair. Keying it on the URL instead would mean every forged
+  token opened its own bucket — so the guard would never fire for the flood it
+  exists to stop, while the bucket table grew until the process ran out of
+  memory. Buckets are also pruned, so they can't accumulate over a long uptime.
 - Only `.env` holds secrets and it is gitignored; `.env.example` is the
   template.
 

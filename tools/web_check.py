@@ -231,6 +231,25 @@ async def main() -> None:
     res = await client.post(f"/r/{good}/status", data="not json")
     check("non-JSON body -> 400", res.status == 400, f"got {res.status}")
 
+    print("\n[6b] an unauthenticated caller cannot make the server accumulate state")
+    srv._hits.clear()
+    for n in range(60):
+        res = await client.get(f"/r/forged-token-{n}/state")
+        assert res.status == 401, res.status
+    check("garbage tokens allocate no rate-limit buckets", len(srv._hits) == 0,
+          f"{len(srv._hits)} buckets — unbounded growth is a memory-exhaustion DoS")
+    check("garbage tokens allocate no admin-cache entries",
+          all(k[1] != 0 for k in srv._admin_cache), str(srv._admin_cache.keys()))
+
+    before = len(srv._hits)
+    await client.get(f"/r/{good}/state")
+    check("a verified token gets exactly one bucket", len(srv._hits) == before + 1)
+    check("bucket is keyed on the verified pair, not the token",
+          (raid.id, ADMIN) in srv._hits, str(list(srv._hits)))
+    for _ in range(5):
+        await client.get(f"/r/{good}/state")
+    check("re-using a link reuses its bucket", len(srv._hits) == before + 1)
+
     print("\n[7] combined DPS target")
     combined = store.create_raid(
         guild_id=GUILD, channel_id=42, title="Combined", description=None,
