@@ -171,6 +171,27 @@ Restarts are safe: the buttons on existing raid boards use static IDs so they
 keep working, and reminders are claimed in the database, so a restart in the
 middle of raid night won't re-ping everybody.
 
+#### Bringing old boards up to date
+
+A board is only redrawn when something about it changes, so a raid posted
+before a layout or button change keeps the old look until someone touches its
+roster. To pull them all forward at once:
+
+```bash
+python -m tools.refresh_boards --dry-run   # see what would be touched
+python -m tools.refresh_boards             # every live raid
+python -m tools.refresh_boards 3 7         # or just these
+```
+
+This **edits the existing messages**, so each raid keeps its place in the
+channel and its replies — unlike `/raid repost`, which abandons the old message
+and posts a new one. It changes no roster data. Cancelled raids are skipped,
+and a raid whose message was deleted is reported rather than silently ignored:
+that one does need `/raid repost`.
+
+Safe to run while the bot is up — it opens its own short-lived connection and
+deliberately doesn't start the reminder loop, so it can't double-ping anyone.
+
 ## Web roster manager
 
 Accepting people one dropdown at a time gets slow once a raid has twenty
@@ -358,8 +379,8 @@ bot/
   web/server.py      aiohttp app: auth, JSON state, roster mutations
   web/page.py        the manager page — one file, no build step
 tools/               icon fetch/probe/contact-sheet, smoke test, import check,
-                     web check, UI preview builder, db inspector,
-                     timezone explainer
+                     web check, UI preview builder, board refresher,
+                     db inspector, timezone explainer
 ```
 
 ## Security notes
