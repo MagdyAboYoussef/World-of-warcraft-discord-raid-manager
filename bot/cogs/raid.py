@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import time
 from typing import TYPE_CHECKING
 
 import discord
@@ -30,6 +32,42 @@ from ..ui.schedule import (
     suggest_timezone,
     suggest_when,
 )
+
+
+def autocomplete_guard(name: str):
+    """Time every autocomplete call, and degrade instead of erroring.
+
+    Discord allows a callback three seconds and shows the same "Loading options
+    failed" for every way of missing that - an exception, a slow reply, an
+    oversized payload - without telling the bot which happened. Worse, a
+    callback that never gets invoked looks identical from the user's side.
+
+    So: log the timing of each call, log a traceback if one escapes, and return
+    an empty list rather than propagating. An empty dropdown lets the raid lead
+    type the value by hand, which every one of these fields already accepts.
+    """
+
+    def decorate(fn):
+        @functools.wraps(fn)
+        async def wrapper(self, interaction: discord.Interaction, current: str):
+            started = time.perf_counter()
+            try:
+                choices = await fn(self, interaction, current)
+            except Exception:
+                log.exception("autocomplete %s failed on %r", name, current)
+                return []
+            elapsed = (time.perf_counter() - started) * 1000
+            # Anything approaching Discord's 3s budget is the interesting case.
+            level = logging.WARNING if elapsed > 1000 else logging.INFO
+            log.log(
+                level, "autocomplete %s: %r -> %d choices in %.1fms",
+                name, current, len(choices), elapsed,
+            )
+            return choices
+
+        return wrapper
+
+    return decorate
 
 
 def admin_only():
@@ -156,6 +194,7 @@ class RaidCog(commands.Cog):
     # the field is focused - so an admin sees ready-made choices and can either
     # pick one or keep typing their own.
     @create.autocomplete("when")
+    @autocomplete_guard("when")
     async def when_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
@@ -168,6 +207,7 @@ class RaidCog(commands.Cog):
         ]
 
     @create.autocomplete("timezone")
+    @autocomplete_guard("timezone")
     async def timezone_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
@@ -177,6 +217,7 @@ class RaidCog(commands.Cog):
         ]
 
     @create.autocomplete("duration")
+    @autocomplete_guard("duration")
     async def duration_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
