@@ -20,7 +20,9 @@ import discord  # noqa: E402
 from bot.cogs.raid import RaidCog  # noqa: E402
 from bot.data.specs import CLASSES, specs_for_class  # noqa: E402
 from bot.ui.admin import DetailsModal, RaidSettings, RosterManager  # noqa: E402
-from bot.ui.apply import ProfileModal, SpecPickerView  # noqa: E402
+from bot.ui.apply import (  # noqa: E402
+    CachedProfileView, ProfileModal, SpecPickerView,
+)
 from bot.ui.panel import RaidView  # noqa: E402
 
 failures: list[str] = []
@@ -69,6 +71,26 @@ check(
     "details modal covers title/desc/when/duration/timezone",
     len(details.children) == 5, str(len(details.children)),
 )
+
+print("\n[4b] cached-profile view (apply / tentative / bench / absent)")
+
+
+class _Player:
+    character_name = "Mimz"
+    logs_url = None
+    spec_key = "pal_holy"
+
+
+_cached = CachedProfileView(1, _Player())
+_rows: dict[int, int] = {}
+for _item in _cached.children:
+    _rows[_item.row] = _rows.get(_item.row, 0) + 1
+check("<=5 rows", len(_rows) <= 5, str(sorted(_rows)))
+check("no row exceeds 5 components", all(n <= 5 for n in _rows.values()), str(_rows))
+_labels = {getattr(i, "label", None) for i in _cached.children}
+check("offers a direct tentative sign-up", "Tentative / late" in _labels, str(_labels))
+check("offers a direct bench sign-up", "Bench me" in _labels)
+check("offers a direct absent sign-up", "Absent" in _labels)
 
 print("\n[5] admin views build")
 manager = RosterManager(1)

@@ -197,6 +197,21 @@ async def main() -> None:
     check("spec reassign succeeds", res.status == 200)
     check("spec persisted", store.get_signup(raid.id, RAIDER).spec_key == "pal_holy")
 
+    # Measured as a delta: an earlier step in this run reassigned RAIDER to a
+    # healer spec, so the healer column is legitimately non-zero already.
+    healers = lambda st: next(r for r in st["roles"] if r["key"] == "healer")["accepted"]
+    before_tentative = healers(await (await client.get(f"/r/{good}/state")).json())
+    res = await client.post(f"/r/{good}/status",
+                            json={"user_id": str(RAIDER + 1), "status": "tentative"})
+    state = await res.json()
+    check("tentative accepted as a status", res.status == 200)
+    check("tentative persisted",
+          store.get_signup(raid.id, RAIDER + 1).status is Status.TENTATIVE)
+    check("tentative does not join the accepted roster",
+          healers(state) == before_tentative, f"{before_tentative} -> {healers(state)}")
+    check("tentative offered to the page",
+          any(s["value"] == "tentative" for s in state["statuses"]))
+
     res = await client.post(f"/r/{good}/remove", json={"user_id": str(RAIDER + 2)})
     check("remove succeeds", res.status == 200)
     check("signup gone", store.get_signup(raid.id, RAIDER + 2) is None)

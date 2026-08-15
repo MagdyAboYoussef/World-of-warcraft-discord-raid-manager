@@ -43,6 +43,21 @@ COLOR_CANCELLED = 0x992D22  # dark red
 COLOR_COMPLETED = 0xA83232  # red — the raid is over
 
 
+# Discord strips plain blank lines from the top and bottom of a field value, so
+# the breathing room around each section is built from zero-width spaces, which
+# it keeps. One line under the header, two under the content.
+BLANK = "​"
+SECTION_HEAD = f"{BLANK}\n"
+SECTION_TAIL = f"\n{BLANK}\n{BLANK}"
+#: What's left of a field once the spacing has taken its share.
+CONTENT_LIMIT = FIELD_LIMIT - len(SECTION_HEAD) - len(SECTION_TAIL)
+
+
+def _section(value: str) -> str:
+    """Wrap a field value in the standard section spacing."""
+    return f"{SECTION_HEAD}{value}{SECTION_TAIL}"
+
+
 def clamp(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
@@ -83,7 +98,7 @@ def _fit(lines: list[str], empty: str = "*—*") -> str:
     for i, line in enumerate(lines):
         remaining = len(lines) - i
         marker = f"\n*…+{remaining} more*"
-        if used + len(line) + 1 + len(marker) > FIELD_LIMIT:
+        if used + len(line) + 1 + len(marker) > CONTENT_LIMIT:
             out.append(marker.strip())
             break
         out.append(line)
@@ -150,7 +165,7 @@ def _fit_inline(items: list[str], sep: str = "  ", empty: str = "*—*") -> str:
     out: list[str] = []
     used = 0
     for item in items:
-        if used + len(item) + len(sep) > FIELD_LIMIT:
+        if used + len(item) + len(sep) > CONTENT_LIMIT:
             break
         out.append(item)
         used += len(item) + len(sep)
@@ -242,25 +257,26 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         icon = registry.role(role.value)
         embed.add_field(
             name=f"{icon} {role.label} ({tally})",
-            value=_fit([_roster_line(m) for m in members]),
+            value=_section(_fit([_roster_line(m) for m in members])),
             inline=False,
         )
 
     # --- buff coverage ---
     missing_text, covered_text = _buff_panel(accepted)
-    embed.add_field(name="⚠️ Missing Raid Buffs", value=missing_text, inline=False)
-    embed.add_field(name="✅ Available Buffs", value=covered_text, inline=False)
+    embed.add_field(name="⚠️ Missing Raid Buffs", value=_section(missing_text), inline=False)
+    embed.add_field(name="✅ Available Buffs", value=_section(covered_text), inline=False)
 
     # --- queues ---
     pending = by_status[Status.PENDING]
     if pending:
         embed.add_field(
             name=f"🕓 Pending ({len(pending)})",
-            value=_fit([_roster_line(p) for p in _sorted(pending)]),
+            value=_section(_fit([_roster_line(p) for p in _sorted(pending)])),
             inline=False,
         )
 
     side: list[tuple[str, list[Signup]]] = [
+        ("❔ Tentative", by_status[Status.TENTATIVE]),
         ("🪑 Bench", by_status[Status.BENCH]),
         ("🚫 Absent", by_status[Status.ABSENT]),
         ("❌ Declined", by_status[Status.DECLINED]),
@@ -269,7 +285,7 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         if members:
             embed.add_field(
                 name=f"{label} ({len(members)})",
-                value=_fit([_roster_line(m) for m in _sorted(members)]),
+                value=_section(_fit([_roster_line(m) for m in _sorted(members)])),
                 inline=True,
             )
 
@@ -287,7 +303,7 @@ def _within_total_limit(embed: discord.Embed) -> discord.Embed:
     which would freeze the board rather than merely truncate it. The comp and
     buff panel are the point of the board, so the side queues go first.
     """
-    droppable = ("❌ Declined", "🚫 Absent", "🪑 Bench", "🕓 Pending")
+    droppable = ("❌ Declined", "🚫 Absent", "🪑 Bench", "❔ Tentative", "🕓 Pending")
     for name_prefix in droppable:
         if len(embed) <= TOTAL_LIMIT:
             break

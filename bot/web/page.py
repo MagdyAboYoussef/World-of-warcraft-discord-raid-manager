@@ -138,6 +138,7 @@ kbd {
 }
 .card:focus-visible { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(217,178,95,.25); }
 .card[data-status="declined"], .card[data-status="absent"] { opacity: .5; }
+.card[data-status="tentative"] { border-style: dashed; }
 .card .who { display: flex; gap: 9px; align-items: center; }
 .card img.icon {
   width: 28px; height: 28px; border-radius: 5px; flex: none;
@@ -154,15 +155,17 @@ kbd {
 .card select { width: 100%; margin-top: 6px; background: var(--bg); color: var(--text);
   border: 1px solid var(--line); border-radius: 6px; padding: 4px; font: inherit; font-size: 12.5px; }
 
-.acts { display: flex; gap: 4px; margin-top: 8px; }
+.acts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .acts button {
-  flex: 1; min-width: 0; padding: 4px 2px; font-size: 11.5px; font-weight: 600;
+  flex: 1 1 30%; min-width: 0; padding: 4px 2px; font-size: 11.5px; font-weight: 600;
   border-radius: 6px; background: transparent; letter-spacing: -.01em;
 }
 .acts button[data-s="accepted"]:hover, .card[data-status="accepted"] .acts button[data-s="accepted"] {
   background: rgba(63,185,80,.16); border-color: var(--accepted); color: var(--accepted); }
 .acts button[data-s="declined"]:hover, .card[data-status="declined"] .acts button[data-s="declined"] {
   background: rgba(248,81,73,.16); border-color: var(--declined); color: var(--declined); }
+.acts button[data-s="tentative"]:hover, .card[data-status="tentative"] .acts button[data-s="tentative"] {
+  background: rgba(163,113,247,.18); border-color: #a371f7; color: #c8a2fc; }
 .acts button[data-s="bench"]:hover, .card[data-status="bench"] .acts button[data-s="bench"] {
   background: rgba(125,133,144,.2); border-color: var(--bench); color: var(--text); }
 .acts button[data-s="absent"]:hover, .card[data-status="absent"] .acts button[data-s="absent"] {
@@ -193,13 +196,16 @@ const ICONS = 'https://wow.zamimg.com/images/wow/icons/large/';
 // every real request - icons come from the CDN as normal.
 const ICON_MAP = window.ICON_MAP || null;
 const iconUrl = (slug) => (ICON_MAP ? ICON_MAP[slug] || '' : ICONS + slug + '.jpg');
-const ORDER = { pending: 0, accepted: 1, bench: 2, absent: 3, declined: 4 };
-const KEYS = { a: 'accepted', d: 'declined', b: 'bench', n: 'absent', p: 'pending' };
+// Sort order within a column: undecided first, since those are the ones asking
+// the raid lead for a decision.
+const ORDER = { pending: 0, tentative: 1, accepted: 2, bench: 3, absent: 4, declined: 5 };
+const KEYS = { a: 'accepted', d: 'declined', t: 'tentative', b: 'bench', n: 'absent',
+               p: 'pending' };
 // Not derived from the status labels: "Accepted" and "Absent" both start with
 // A, so first-letter buttons would give the roster two identical controls.
 const SHORT = {
-  accepted: ['Accept', 'A'], declined: ['Decline', 'D'], bench: ['Bench', 'B'],
-  absent: ['Out', 'N'], pending: ['Reset', 'P'],
+  accepted: ['Accept', 'A'], declined: ['Decline', 'D'], tentative: ['Tent', 'T'],
+  bench: ['Bench', 'B'], absent: ['Out', 'N'], pending: ['Reset', 'P'],
 };
 
 let state = null;
@@ -658,8 +664,9 @@ def render_page(title: str) -> web.Response:
     <button id="f-pending">Pending only</button>
     <span class="grow"></span>
     <span class="hint">
-      Focus a card, then <kbd>A</kbd>ccept <kbd>D</kbd>ecline <kbd>B</kbd>ench
-      <kbd>N</kbd> absent <kbd>P</kbd>ending <kbd>X</kbd> remove · <kbd>↑</kbd><kbd>↓</kbd> to move
+      Focus a card, then <kbd>A</kbd>ccept <kbd>D</kbd>ecline <kbd>T</kbd>entative
+      <kbd>B</kbd>ench <kbd>N</kbd> absent <kbd>P</kbd>ending <kbd>X</kbd> remove ·
+      <kbd>↑</kbd><kbd>↓</kbd> to move
     </span>
   </div>
 

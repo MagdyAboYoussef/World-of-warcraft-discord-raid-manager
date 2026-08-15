@@ -25,6 +25,10 @@ class Status(str, Enum):
     DECLINED = "declined"
     BENCH = "bench"
     ABSENT = "absent"
+    #: "I intend to come but can't promise, or I'll be late." Appended rather
+    #: than slotted next to PENDING so that nothing depending on the existing
+    #: member order shifts underneath it.
+    TENTATIVE = "tentative"
 
     @property
     def label(self) -> str:
@@ -34,6 +38,7 @@ class Status(str, Enum):
             Status.DECLINED: "Declined",
             Status.BENCH: "Benched",
             Status.ABSENT: "Absent",
+            Status.TENTATIVE: "Tentative",
         }[self]
 
     @property
@@ -44,7 +49,13 @@ class Status(str, Enum):
             Status.DECLINED: "❌",
             Status.BENCH: "🪑",
             Status.ABSENT: "🚫",
+            Status.TENTATIVE: "❔",
         }[self]
+
+    @property
+    def self_service(self) -> bool:
+        """Can a player put themselves in this state without an admin?"""
+        return self in (Status.BENCH, Status.ABSENT, Status.TENTATIVE)
 
 
 class RaidState(str, Enum):

@@ -47,6 +47,8 @@ ROSTER = [
     ("Voidgaze",    "priest_shadow", "accepted", None, True),
     ("Emberdrake",  "evoker_aug",   "pending",  "Aug or Dev, whichever the comp needs.", True),
     ("Thundercall", "sham_ele",     "absent",   "Out this week — holiday.", False),
+    ("Duskwarden",  "dk_blood",     "tentative", "Might be 20 min late, kids' bedtime.", True),
+    ("Riverchant",  "sham_resto",   "tentative", None, False),
 ]
 
 BASE_ID = 400000000000000000  # realistic snowflake width, so nothing looks fake
@@ -121,6 +123,7 @@ def build_state() -> dict:
             {"value": "declined", "label": "Declined", "emoji": "❌"},
             {"value": "bench", "label": "Benched", "emoji": "🪑"},
             {"value": "absent", "label": "Absent", "emoji": "🚫"},
+            {"value": "tentative", "label": "Tentative", "emoji": "❔"},
         ],
         "specs": [
             {"key": s.key, "label": s.full_name, "icon": s.icon,

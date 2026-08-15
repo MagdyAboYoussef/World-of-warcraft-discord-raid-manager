@@ -408,6 +408,75 @@ with tempfile.TemporaryDirectory() as tmp:
           all("/" in f.name for f in plain_embed.fields[:4]))
     store.close()
 
+print("\n[7c] tentative status + section spacing")
+with tempfile.TemporaryDirectory() as tmp:
+    from bot.ui.embeds import BLANK, CONTENT_LIMIT, FIELD_LIMIT, SECTION_HEAD, SECTION_TAIL
+
+    check("tentative is self-service", Status.TENTATIVE.self_service)
+    check("accepted is not self-service", not Status.ACCEPTED.self_service)
+    check("tentative has its own emoji",
+          len({s.emoji for s in Status}) == len(list(Status)), "emoji must stay unique")
+    check("tentative has its own label",
+          len({s.label for s in Status}) == len(list(Status)))
+
+    store = Store(Path(tmp) / "tent.sqlite3")
+    raid = store.create_raid(
+        guild_id=1, channel_id=1, title="Spacing", description=None, leader_id=1,
+        starts_at=None, caps={"tank": 2, "healer": 4, "melee": 7, "ranged": 7},
+    )
+    for index, (name, spec_key, status) in enumerate([
+        ("Blocky", "pal_prot", Status.ACCEPTED),
+        ("Mender", "priest_holy", Status.ACCEPTED),
+        ("Maybe", "warr_arms", Status.TENTATIVE),
+        ("Perhaps", "mage_fire", Status.TENTATIVE),
+        ("Sitting", "rogue_sub", Status.BENCH),
+    ]):
+        store.upsert_signup(
+            raid_id=raid.id, user_id=200 + index, character_name=name, logs_url=None,
+            spec_key=spec_key, status=status,
+        )
+    embed = build_raid_embed(store.get_raid(raid.id), store.signups(raid.id))
+
+    check("tentative gets its own section",
+          any(f.name and f.name.startswith("❔ Tentative") for f in embed.fields),
+          str([f.name for f in embed.fields]))
+    check("tentative section counts its members",
+          any(f.name == "❔ Tentative (2)" for f in embed.fields))
+    check("tentative is not counted as accepted", "2/20 accepted" in embed.footer.text,
+          embed.footer.text)
+
+    for field in embed.fields:
+        check(f"blank line under header: {field.name[:22]}", field.value.startswith(SECTION_HEAD))
+        check(f"two blank lines under body: {field.name[:22]}", field.value.endswith(SECTION_TAIL))
+    check("spacing uses a zero-width space, which Discord keeps", BLANK == "​")
+    check("no field exceeds the limit with spacing added",
+          all(len(f.value) <= FIELD_LIMIT for f in embed.fields),
+          str(max(len(f.value) for f in embed.fields)))
+    check("content budget leaves room for the padding",
+          CONTENT_LIMIT == FIELD_LIMIT - len(SECTION_HEAD) - len(SECTION_TAIL))
+
+    # A full field must still fit once the padding is wrapped around it.
+    packed = Store(Path(tmp) / "packed.sqlite3")
+    big = packed.create_raid(
+        guild_id=1, channel_id=1, title="Packed", description=None, leader_id=1,
+        starts_at=None, caps={"tank": 40, "healer": 4, "melee": 7, "ranged": 7},
+    )
+    for index in range(40):
+        packed.upsert_signup(
+            raid_id=big.id, user_id=900 + index, character_name=f"Tankilicious{index:02d}",
+            logs_url="https://www.warcraftlogs.com/character/eu/kazzak/someoneverylong",
+            spec_key="pal_prot", status=Status.ACCEPTED,
+        )
+    packed_embed = build_raid_embed(packed.get_raid(big.id), packed.signups(big.id))
+    check("overflowing field still within the limit",
+          all(len(f.value) <= FIELD_LIMIT for f in packed_embed.fields),
+          str(max(len(f.value) for f in packed_embed.fields)))
+    check("overflowing field keeps its spacing",
+          all(f.value.startswith(SECTION_HEAD) and f.value.endswith(SECTION_TAIL)
+              for f in packed_embed.fields))
+    packed.close()
+    store.close()
+
 print("\n[8] hardening: hostile input and Discord's hard limits")
 from bot.ui.common import SAFE_MENTIONS, normalise_logs_url  # noqa: E402
 from bot.ui.embeds import (  # noqa: E402

@@ -112,10 +112,15 @@ class ProfileModal(discord.ui.Modal):
         character_name: str = "",
         logs_url: str = "",
         spec_key: str | None = None,
+        status: Status = Status.PENDING,
     ) -> None:
         super().__init__(title="Raid Application")
         self.raid_id = raid_id
         self.spec_key = spec_key
+        # Carried through the whole flow so that "Bench me" from a player the
+        # bot has never seen still lands them on the bench, rather than
+        # applying them and making them change it straight afterwards.
+        self.status = status
 
         self.character = discord.ui.TextInput(
             label="Character name",
@@ -158,6 +163,7 @@ class ProfileModal(discord.ui.Modal):
                 logs_url=logs_url,
                 spec_key=spec_key,
                 note=note,
+                status=self.status,
             )
 
         await interaction.response.send_message(
@@ -175,8 +181,9 @@ async def submit_application(
     logs_url: str | None,
     spec_key: str,
     note: str | None,
+    status: Status = Status.PENDING,
 ) -> None:
-    """Persist the signup as PENDING, cache the profile, refresh the roster."""
+    """Persist the signup, cache the profile, refresh the roster."""
     store = store_of(interaction)
     if spec_key not in SPECS_BY_KEY:
         await interaction.response.send_message("Unknown spec, please retry.", ephemeral=True)
@@ -188,7 +195,7 @@ async def submit_application(
         character_name=character_name,
         logs_url=logs_url,
         spec_key=spec_key,
-        status=Status.PENDING,
+        status=status,
         note=note,
         updated_by=interaction.user.id,
     )
@@ -196,11 +203,44 @@ async def submit_application(
     store.save_player(interaction.user.id, character_name, logs_url, spec_key)
 
     await interaction.response.edit_message(
-        content=None,
+        content=f"{status.emoji} You're **{status.label}** for this raid.",
         embed=build_profile_embed(character_name, spec_key, logs_url),
         view=None,
     )
     await refresh_raid_message(interaction.client, raid_id)
+
+
+#: Offered alongside Apply wherever someone signs themselves up.
+SELF_SERVICE: tuple[tuple[Status, str, str], ...] = (
+    (Status.TENTATIVE, "Tentative / late", "❔"),
+    (Status.BENCH, "Bench me", "🪑"),
+    (Status.ABSENT, "Absent", "🚫"),
+)
+
+
+class _SignUpAs(discord.ui.Button):
+    """Sign up with the cached character, but not as Pending.
+
+    Saves the round trip of applying and then immediately correcting yourself,
+    which is what everyone was doing when they already knew they'd be late.
+    """
+
+    def __init__(self, status: Status, label: str, emoji: str) -> None:
+        self.status = status
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view: "CachedProfileView" = self.view  # type: ignore[assignment]
+        await submit_application(
+            interaction,
+            raid_id=view.raid_id,
+            character_name=view.player.character_name,
+            logs_url=view.player.logs_url,
+            spec_key=view.player.spec_key,
+            note=None,
+            status=self.status,
+        )
+        view.stop()
 
 
 class CachedProfileView(discord.ui.View):
@@ -210,8 +250,12 @@ class CachedProfileView(discord.ui.View):
         super().__init__(timeout=300)
         self.raid_id = raid_id
         self.player = player
+        for status, label, emoji in SELF_SERVICE:
+            self.add_item(_SignUpAs(status, label, emoji))
 
-    @discord.ui.button(label="Apply with these details", style=discord.ButtonStyle.success)
+    @discord.ui.button(
+        label="Apply with these details", emoji="📝", style=discord.ButtonStyle.success, row=0
+    )
     async def use_cached(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await submit_application(
             interaction,
@@ -223,7 +267,7 @@ class CachedProfileView(discord.ui.View):
         )
         self.stop()
 
-    @discord.ui.button(label="Change spec only", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Change spec only", style=discord.ButtonStyle.primary, row=2)
     async def change_spec(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         async def finish(spec_interaction: discord.Interaction, spec_key: str) -> None:
             await submit_application(
@@ -242,7 +286,7 @@ class CachedProfileView(discord.ui.View):
         )
         self.stop()
 
-    @discord.ui.button(label="Edit everything", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Edit everything", style=discord.ButtonStyle.secondary, row=2)
     async def edit_all(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await interaction.response.send_modal(
             ProfileModal(
@@ -255,12 +299,18 @@ class CachedProfileView(discord.ui.View):
         self.stop()
 
 
-async def start_application(interaction: discord.Interaction, raid_id: int) -> None:
-    """Entry point from the Apply button."""
+async def start_application(
+    interaction: discord.Interaction, raid_id: int, status: Status = Status.PENDING
+) -> None:
+    """Entry point from Apply, and from Bench/Absent/Tentative for new players.
+
+    `status` is where an unknown player lands once they've given their details -
+    pressing "Bench me" as a first-timer should bench them, not apply them.
+    """
     store = store_of(interaction)
     player = store.get_player(interaction.user.id)
     if player is None:
-        await interaction.response.send_modal(ProfileModal(raid_id))
+        await interaction.response.send_modal(ProfileModal(raid_id, status=status))
         return
 
     spec = get_spec(player.spec_key)
@@ -286,7 +336,10 @@ async def start_application(interaction: discord.Interaction, raid_id: int) -> N
         description="\n".join(lines),
         color=spec.color if spec else 0x5865F2,
     )
-    embed.set_footer(text="Nothing changes until you press a button below.")
+    embed.set_footer(
+        text="Nothing changes until you press a button below. "
+        "Not sure you'll make it? Sign up as Tentative, Bench or Absent instead."
+    )
     await interaction.response.send_message(
         embed=embed, view=CachedProfileView(raid_id, player), ephemeral=True
     )

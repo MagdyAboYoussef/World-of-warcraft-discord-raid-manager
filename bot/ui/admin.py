@@ -77,16 +77,18 @@ class RosterManager(discord.ui.View):
         self.add_item(FilterSelect(self))
         self.add_item(RoleFilterSelect(self))
         self.add_item(PlayerSelect(self, store))
-        # All five status buttons share one row (Discord's per-row cap), which
-        # frees the row the role filter now occupies.
+        # Six statuses no longer fit Discord's five-per-row cap, so Pending -
+        # the "undo" of the other five rather than a decision in its own right -
+        # moves down to sit with the other non-status actions.
         for status, style in (
             (Status.ACCEPTED, discord.ButtonStyle.success),
             (Status.DECLINED, discord.ButtonStyle.danger),
+            (Status.TENTATIVE, discord.ButtonStyle.secondary),
             (Status.BENCH, discord.ButtonStyle.secondary),
             (Status.ABSENT, discord.ButtonStyle.secondary),
-            (Status.PENDING, discord.ButtonStyle.secondary),
         ):
             self.add_item(StatusButton(self, status, style, 3))
+        self.add_item(StatusButton(self, Status.PENDING, discord.ButtonStyle.secondary, 4))
         self.add_item(ChangeSpecButton(self))
         self.add_item(RemoveButton(self))
         if WEB_ENABLED:

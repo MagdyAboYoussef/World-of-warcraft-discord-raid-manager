@@ -42,11 +42,10 @@ async def _set_own_status(interaction: discord.Interaction, status: Status) -> N
     else:
         player = store.get_player(interaction.user.id)
         if player is None:
-            await deny(
-                interaction,
-                "I don't know your character yet — hit **Apply** once and I'll remember it. "
-                "You can switch to Bench/Absent straight after.",
-            )
+            # First-timer: collect their details and land them on the status they
+            # actually pressed. Refusing them here just meant applying first and
+            # then correcting it, which is the round trip this avoids.
+            await start_application(interaction, raid.id, status)
             return
         store.upsert_signup(
             raid_id=raid.id,
@@ -81,6 +80,13 @@ class RaidView(discord.ui.View):
             await deny(interaction, f"Raid **{raid.title}** is {raid.state.value} — signups are closed.")
             return
         await start_application(interaction, raid.id)
+
+    @discord.ui.button(
+        label="Tentative", emoji="❔", style=discord.ButtonStyle.secondary,
+        custom_id="raid:tentative", row=0,
+    )
+    async def tentative(self, interaction: discord.Interaction, _b: discord.ui.Button) -> None:
+        await _set_own_status(interaction, Status.TENTATIVE)
 
     @discord.ui.button(
         label="Bench me", emoji="🪑", style=discord.ButtonStyle.secondary, custom_id="raid:bench", row=0
