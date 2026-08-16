@@ -43,9 +43,11 @@ def targets(store: Store, wanted: list[int]) -> list:
             raise SystemExit(f"no such raid: {', '.join(str(m) for m in missing)}")
         return list(raids)
 
+    # Cancelled raids included deliberately. Re-rendering one does not revive
+    # it - it draws the cancelled state, which is precisely what needs to reach
+    # the channel once a layout change strips the buttons off a dead board.
     rows = store.db.execute(
-        "SELECT id FROM raids WHERE state != ? AND message_id IS NOT NULL ORDER BY id",
-        (RaidState.CANCELLED.value,),
+        "SELECT id FROM raids WHERE message_id IS NOT NULL ORDER BY id"
     ).fetchall()
     return [store.get_raid(row["id"]) for row in rows]
 
@@ -60,8 +62,8 @@ async def run(wanted: list[int], dry_run: bool) -> int:
     print(f"{len(raids)} board(s) to refresh:")
     for raid in raids:
         signups = len(store.signups(raid.id))
-        anchor = raid.message_id or "— never posted, use /raid repost"
-        print(f"  #{raid.id:<3} {raid.title[:40]:<42} {signups:>3} signups  msg {anchor}")
+        state = "" if raid.state is RaidState.OPEN else f"  [{raid.state.value}]"
+        print(f"  #{raid.id:<3} {raid.title[:36]:<38} {signups:>3} signups{state}")
     if dry_run:
         return 0
 

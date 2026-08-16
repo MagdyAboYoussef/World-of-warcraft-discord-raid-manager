@@ -185,9 +185,10 @@ python -m tools.refresh_boards 3 7         # or just these
 
 This **edits the existing messages**, so each raid keeps its place in the
 channel and its replies — unlike `/raid repost`, which abandons the old message
-and posts a new one. It changes no roster data. Cancelled raids are skipped,
-and a raid whose message was deleted is reported rather than silently ignored:
-that one does need `/raid repost`.
+and posts a new one. It changes no roster data. Cancelled and finished raids are included — that is
+how a dead board loses its signup buttons after a layout change. A raid whose
+message has been deleted is reported rather than silently ignored: that one
+does need `/raid repost`.
 
 Safe to run while the bot is up — it opens its own short-lived connection and
 deliberately doesn't start the reminder loop, so it can't double-ping anyone.
