@@ -50,16 +50,16 @@ VENDORED_ROLE_ICONS: tuple[Role, ...] = (Role.TANK, Role.HEALER, Role.RANGED)
 #: nothing reads these at runtime or at fetch time.
 ROLE_ICON_SOURCE_URLS: dict[Role, str] = {
     Role.TANK: (
-        "https://encrypted-tbn0.gstatic.com/images"
-        "?q=tbn:ANd9GcSoO8vR9_TL9MJOjd73ZaorIESxQh1lWrzFnRvGOEvptw&s=10"
+        "https://ih1.redbubble.net/image.3875681670.0301/"
+        "raf,360x360,075,t,fafafa:ca443f4786.jpg"
     ),
     Role.HEALER: (
         "https://encrypted-tbn0.gstatic.com/images"
-        "?q=tbn:ANd9GcTYaqI3CjTQzrYOlRZzd__z2IFI_bzzefOJGPKRoBMmvIeDlvWECySDXQv1&s=10"
+        "?q=tbn:ANd9GcS1jul9lXx4Jiw7oImZ51yV8t6ioLxNxRH2Z1sT5ODAUg&s=10"
     ),
     Role.RANGED: (
         "https://encrypted-tbn0.gstatic.com/images"
-        "?q=tbn:ANd9GcTCk9ZALcgxtpwgTsATWfGh8r6fUJjvglkQ-Tp4L-ZpEtdQyk2ERJmoIHAl&s=10"
+        "?q=tbn:ANd9GcTHjDZ0r7QCo6juu40da47rpO_sgAByS6ZrJRPJZ6_hZenVJ_TpIRnijjEt&s=10"
     ),
 }
 
