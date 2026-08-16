@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import io
 import sys
+import shutil
 from pathlib import Path
 
 import requests
@@ -31,7 +32,9 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bot.data import buffs as buffs_data  # noqa: E402
-from bot.data.specs import CLASS_ICONS, ROLE_ORDER, SPECS  # noqa: E402
+from bot.data.specs import (  # noqa: E402
+    CLASS_ICONS, ROLE_ORDER, SPECS, VENDORED_ROLE_ICONS,
+)
 
 CDN = "https://wow.zamimg.com/images/wow/icons/large/{slug}.jpg"
 ICON_SIZE = 64
@@ -60,6 +63,9 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "ui_allianceicon-round": ("inv_shield_06", "ability_defend"),
 }
 
+#: Icons committed to the repository rather than downloaded.
+VENDORED_ROLE_ICONS_DIR = Path(__file__).resolve().parents[1] / "assets" / "role_icons"
+
 session = requests.Session()
 session.headers["User-Agent"] = "wow-raid-bot/1.0 (icon fetcher)"
 
@@ -79,9 +85,32 @@ def resolve(slug: str) -> tuple[str, bytes] | None:
 
 def save(raw: bytes, dest: Path) -> None:
     img = Image.open(io.BytesIO(raw)).convert("RGBA")
+    if img.width != img.height:
+        # Wowhead icons are square, but an override URL need not be. Squashing a
+        # 387x516 image into a square emoji distorts it, so take the middle.
+        side = min(img.size)
+        left = (img.width - side) // 2
+        top = (img.height - side) // 2
+        img = img.crop((left, top, left + side, top + side))
     img = img.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
     dest.parent.mkdir(parents=True, exist_ok=True)
     img.save(dest, "PNG", optimize=True)
+
+
+def fetch_url(url: str, dest: Path, *, force: bool) -> str | None:
+    """Download+save one icon from an explicit URL rather than a CDN slug."""
+    if dest.exists() and not force:
+        return url
+    try:
+        resp = session.get(url, timeout=20)
+    except requests.RequestException as exc:
+        print(f"  ! {url}: {exc}")
+        return None
+    if resp.status_code != 200 or not resp.content:
+        print(f"  ! {url}: HTTP {resp.status_code}")
+        return None
+    save(resp.content, dest)
+    return url
 
 
 def fetch(slug: str, dest: Path, *, force: bool) -> str | None:
@@ -107,15 +136,31 @@ def main() -> int:
     for spec in SPECS:
         jobs.append((f"{spec.role.value}/{spec.key}", spec.icon, ASSETS / spec.role.value / f"{spec.key}.png"))
     for role in ROLE_ORDER:
-        jobs.append((f"role/{role.value}", role.icon, ASSETS / "role" / f"{role.value}.png"))
+        # A role with a vendored icon is copied in below, not downloaded.
+        if role not in VENDORED_ROLE_ICONS:
+            jobs.append((f"role/{role.value}", role.icon, ASSETS / "role" / f"{role.value}.png"))
     for wow_class, slug in CLASS_ICONS.items():
         key = wow_class.lower().replace(" ", "_")
         jobs.append((f"class/{key}", slug, ASSETS / "class" / f"{key}.png"))
     for name, slug in buffs_data.icon_jobs():
         jobs.append((f"buff/{name}", slug, ASSETS / "buff" / f"{name}.png"))
 
+    # Vendored role icons: copied out of the repo, never downloaded.
+    vendored: list[Path] = []
+    for role in VENDORED_ROLE_ICONS:
+        src = VENDORED_ROLE_ICONS_DIR / f"{role.value}.png"
+        dest = ASSETS / "role" / f"{role.value}.png"
+        vendored.append(dest)
+        if not src.exists():
+            print(f"  ! role/{role.value}: missing vendored icon at {src}")
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        print(f"  = role/{role.value} (vendored)")
+
     # Prune icons left behind by earlier runs whose slug has since changed.
-    expected = {dest for _, _, dest in jobs}
+    # The vendored destinations are expected too, or this would delete them.
+    expected = {dest for _, _, dest in jobs} | set(vendored)
     for stale in ASSETS.rglob("*.png"):
         if stale not in expected:
             stale.unlink()

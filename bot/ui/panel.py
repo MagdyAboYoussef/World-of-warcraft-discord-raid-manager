@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import discord
 
-from ..store import RaidState, Status
+from ..store import Raid, RaidState, Status, raid_is_closed
 from .apply import start_application
 from .common import deny, is_admin, refresh_raid_message, store_of
 
@@ -63,9 +63,31 @@ async def _set_own_status(interaction: discord.Interaction, status: Status) -> N
     await refresh_raid_message(interaction.client, raid.id)
 
 
+#: The buttons that only make sense while a raid is still taking signups.
+PLAYER_BUTTONS = frozenset(
+    {"raid:apply", "raid:tentative", "raid:bench", "raid:absent", "raid:withdraw"}
+)
+
+
 class RaidView(discord.ui.View):
-    def __init__(self) -> None:
+    """The panel under a raid board.
+
+    Pass the raid to drop the player buttons once it is cancelled or over —
+    there is nothing to sign up for, and leaving five dead buttons that only
+    answer "signups are closed" is just noise on a finished raid. The admin row
+    stays, so a lead can still open the roster afterwards.
+
+    `RaidView()` with no raid keeps every button, which is the form registered
+    at startup for persistence: the custom_ids have to stay known to the client
+    for interactions on older messages to route at all.
+    """
+
+    def __init__(self, raid: Raid | None = None) -> None:
         super().__init__(timeout=None)
+        if raid is not None and raid_is_closed(raid):
+            for item in list(self.children):
+                if getattr(item, "custom_id", None) in PLAYER_BUTTONS:
+                    self.remove_item(item)
 
     # ------------------------------------------------------------ player row
 

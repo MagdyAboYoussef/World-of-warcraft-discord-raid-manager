@@ -39,6 +39,30 @@ class Role(str, Enum):
 # Role display order everywhere in the bot.
 ROLE_ORDER: tuple[Role, ...] = (Role.TANK, Role.HEALER, Role.MELEE, Role.RANGED)
 
+#: Roles whose icon ships with the bot instead of being downloaded, as PNGs
+#: under assets/role_icons/. Vendored deliberately: these came from cache URLs
+#: that can stop resolving at any time, and an icon set that breaks when a
+#: third party reorganises its CDN is not worth the bytes it saves. Melee keeps
+#: the Wowhead icon and is still downloaded.
+VENDORED_ROLE_ICONS: tuple[Role, ...] = (Role.TANK, Role.HEALER, Role.RANGED)
+
+#: Where each vendored icon originally came from. Kept for provenance only -
+#: nothing reads these at runtime or at fetch time.
+ROLE_ICON_SOURCE_URLS: dict[Role, str] = {
+    Role.TANK: (
+        "https://encrypted-tbn0.gstatic.com/images"
+        "?q=tbn:ANd9GcSoO8vR9_TL9MJOjd73ZaorIESxQh1lWrzFnRvGOEvptw&s=10"
+    ),
+    Role.HEALER: (
+        "https://encrypted-tbn0.gstatic.com/images"
+        "?q=tbn:ANd9GcTYaqI3CjTQzrYOlRZzd__z2IFI_bzzefOJGPKRoBMmvIeDlvWECySDXQv1&s=10"
+    ),
+    Role.RANGED: (
+        "https://encrypted-tbn0.gstatic.com/images"
+        "?q=tbn:ANd9GcTCk9ZALcgxtpwgTsATWfGh8r6fUJjvglkQ-Tp4L-ZpEtdQyk2ERJmoIHAl&s=10"
+    ),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class Spec:

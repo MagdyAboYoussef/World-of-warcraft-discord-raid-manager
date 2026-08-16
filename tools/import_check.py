@@ -15,6 +15,8 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import time as _t  # noqa: E402
+
 import discord  # noqa: E402
 
 from bot.cogs.raid import RaidCog  # noqa: E402
@@ -141,6 +143,34 @@ check(
     "inspect_db does not open the WAL database read-only",
     not any("mode=ro" in line for line in inspect_code),
 )
+
+print("\n[4c] player buttons disappear once a raid is closed")
+
+
+class _Raid:
+    """Minimal stand-in: RaidView only asks whether the raid is closed."""
+    def __init__(self, state, starts_at, duration_minutes):
+        self.state, self.starts_at = state, starts_at
+        self.duration_minutes, self.created_at = duration_minutes, 0
+
+
+from bot.store import RaidState as _RS  # noqa: E402
+from bot.ui.panel import PLAYER_BUTTONS  # noqa: E402
+
+_ids = lambda v: {c.custom_id for c in v.children}
+_open = _Raid(_RS.OPEN, int(_t.time()) + 7200, 180)
+_over = _Raid(_RS.OPEN, int(_t.time()) - 86400, 180)
+_cancelled = _Raid(_RS.CANCELLED, int(_t.time()) + 7200, 180)
+
+check("no-arg view keeps every button (needed for persistence)",
+      PLAYER_BUTTONS <= _ids(RaidView()), str(_ids(RaidView())))
+check("upcoming raid keeps the player buttons", PLAYER_BUTTONS <= _ids(RaidView(_open)))
+for _label, _r in (("finished", _over), ("cancelled", _cancelled)):
+    _left = _ids(RaidView(_r))
+    check(f"{_label} raid drops every player button",
+          not (PLAYER_BUTTONS & _left), str(_left))
+    check(f"{_label} raid keeps the admin buttons",
+          {"raid:manage", "raid:settings"} <= _left, str(_left))
 
 print("\n[5b] /raid create option descriptions")
 _create = next(c for c in RaidCog.raid.commands if c.name == "create")

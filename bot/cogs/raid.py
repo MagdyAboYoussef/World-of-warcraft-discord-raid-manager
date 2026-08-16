@@ -188,7 +188,7 @@ class RaidCog(commands.Cog):
         )
 
         await interaction.response.send_message(
-            embed=build_raid_embed(raid, []), view=RaidView()
+            embed=build_raid_embed(raid, []), view=RaidView(raid)
         )
         message = await interaction.original_response()
         store.set_raid_message(raid.id, message.id)
@@ -290,7 +290,7 @@ class RaidCog(commands.Cog):
             return
         store = self.bot.store
         await interaction.response.send_message(
-            embed=build_raid_embed(raid, store.signups(raid.id)), view=RaidView()
+            embed=build_raid_embed(raid, store.signups(raid.id)), view=RaidView(raid)
         )
         message = await interaction.original_response()
         store.set_raid_message(raid.id, message.id)

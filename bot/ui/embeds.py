@@ -12,7 +12,7 @@ from ..data import buffs as buffs_data
 from ..data import targets as targets_data
 from ..data.specs import ROLE_ORDER, get_spec
 from ..emojis import registry
-from ..store import Raid, RaidState, Signup, Status
+from ..store import Raid, RaidState, Signup, Status, raid_is_closed, raid_is_finished
 from .schedule import format_clock, format_display, format_duration
 
 log = logging.getLogger(__name__)
@@ -182,10 +182,8 @@ def _raid_appearance(raid: Raid, accepted_count: int) -> tuple[int, str]:
     now = int(time.time())
     if raid.state is RaidState.CANCELLED:
         return COLOR_CANCELLED, "[CANCELLED] "
-    if raid.starts_at is not None:
-        ends_at = raid.starts_at + (raid.duration_minutes or ASSUMED_RAID_MINUTES) * 60
-        if now >= ends_at:
-            return COLOR_COMPLETED, "[COMPLETED] "
+    if raid_is_finished(raid):
+        return COLOR_COMPLETED, "[COMPLETED] "
     if raid.state is RaidState.LOCKED:
         return COLOR_LOCKED, "[LOCKED] "
     if accepted_count >= READY_ACCEPTED:
@@ -269,9 +267,12 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         )
 
     # --- buff coverage ---
-    missing_text, covered_text = _buff_panel(accepted)
-    embed.add_field(name="⚠️ Missing Raid Buffs", value=_section(missing_text), inline=False)
-    embed.add_field(name="✅ Available Buffs", value=_section(covered_text), inline=False)
+    # Dropped once the raid is cancelled or over: "you are missing Battle Shout"
+    # is advice, and there is nothing left to act on.
+    if not raid_is_closed(raid):
+        missing_text, covered_text = _buff_panel(accepted)
+        embed.add_field(name="⚠️ Missing Raid Buffs", value=_section(missing_text), inline=False)
+        embed.add_field(name="✅ Available Buffs", value=_section(covered_text), inline=False)
 
     # --- queues ---
     pending = by_status[Status.PENDING]

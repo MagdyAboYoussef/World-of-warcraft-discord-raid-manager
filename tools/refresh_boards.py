@@ -85,7 +85,7 @@ async def run(wanted: list[int], dry_run: bool) -> int:
                 )
                 message = await channel.fetch_message(raid.message_id)
                 await message.edit(
-                    embed=build_raid_embed(raid, store.signups(raid.id)), view=RaidView()
+                    embed=build_raid_embed(raid, store.signups(raid.id)), view=RaidView(raid)
                 )
                 print(f"  #{raid.id} refreshed — {raid.title[:50]}")
             except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:

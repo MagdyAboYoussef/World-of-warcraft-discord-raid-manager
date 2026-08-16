@@ -174,6 +174,21 @@ def page_expires_at(raid: Raid) -> int:
     return raid_ends_at(raid) + WEB_RETENTION_DAYS * 86400
 
 
+def raid_is_finished(raid: Raid) -> bool:
+    """Has this raid's scheduled window already passed?
+
+    Requires a real start time. raid_ends_at falls back to created_at so that
+    every raid expires eventually, but treating "no time set" as finished three
+    hours after creation would close a board nobody had scheduled yet.
+    """
+    return raid.starts_at is not None and int(time.time()) >= raid_ends_at(raid)
+
+
+def raid_is_closed(raid: Raid) -> bool:
+    """Cancelled, or over. Either way there is nothing left to sign up for."""
+    return raid.state is RaidState.CANCELLED or raid_is_finished(raid)
+
+
 class Store:
     def __init__(self, path: Path = DB_PATH) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

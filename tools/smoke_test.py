@@ -551,6 +551,54 @@ with tempfile.TemporaryDirectory() as tmp:
                             leader_id=1, starts_at=None, auto_accept=True).auto_accept is True)
     store.close()
 
+print("\n[7f] cancelled / finished raids close down")
+with tempfile.TemporaryDirectory() as tmp:
+    import time as _time
+
+    from bot.store import RaidState, raid_is_closed, raid_is_finished
+
+    store = Store(Path(tmp) / "closed.sqlite3")
+    now = int(_time.time())
+
+    def make(title, **kw):
+        raid = store.create_raid(guild_id=1, channel_id=1, title=title, description=None,
+                                 leader_id=1, **kw)
+        store.upsert_signup(raid_id=raid.id, user_id=1, character_name="Blocky",
+                            logs_url=None, spec_key="pal_prot", status=Status.ACCEPTED)
+        return store.get_raid(raid.id)
+
+    upcoming = make("Upcoming", starts_at=now + 7200, duration_minutes=180)
+    over = make("Over", starts_at=now - 86400, duration_minutes=180)
+    undated = make("No time set", starts_at=None)
+    cancelled = make("Cancelled", starts_at=now + 7200, duration_minutes=180)
+    store.set_raid_state(cancelled.id, RaidState.CANCELLED)
+    cancelled = store.get_raid(cancelled.id)
+
+    check("upcoming raid is not finished", not raid_is_finished(upcoming))
+    check("past raid is finished", raid_is_finished(over))
+    check("a raid with no start time is never 'finished'", not raid_is_finished(undated),
+          "raid_ends_at falls back to created_at for expiry; that must not close a board")
+    check("undated raid is not closed", not raid_is_closed(undated))
+    check("cancelled raid is closed", raid_is_closed(cancelled))
+    check("finished raid is closed", raid_is_closed(over))
+
+    def field_names(raid):
+        return [f.name for f in build_raid_embed(raid, store.signups(raid.id)).fields]
+
+    live_fields = field_names(upcoming)
+    check("live raid shows both buff panels",
+          any("Missing Raid Buffs" in n for n in live_fields)
+          and any("Available Buffs" in n for n in live_fields))
+    for label, raid in (("finished", over), ("cancelled", cancelled)):
+        names = field_names(raid)
+        check(f"{label} raid drops the buff panels",
+              not any("Buff" in n for n in names), str(names))
+        check(f"{label} raid still lists the roster",
+              any("Tanks" in n for n in names), str(names))
+    check("undated raid keeps its buff panels",
+          any("Buff" in n for n in field_names(undated)))
+    store.close()
+
 print("\n[8] hardening: hostile input and Discord's hard limits")
 from bot.ui.common import SAFE_MENTIONS, normalise_logs_url  # noqa: E402
 from bot.ui.embeds import (  # noqa: E402

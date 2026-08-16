@@ -100,7 +100,7 @@ async def refresh_raid_message(client: discord.Client, raid_id: int) -> None:
         message = await channel.fetch_message(raid.message_id)  # type: ignore[union-attr]
         await message.edit(
             embed=build_raid_embed(raid, store.signups(raid_id)),
-            view=RaidView(),
+            view=RaidView(raid),
         )
     except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
         log.warning("could not refresh raid #%s message: %s", raid_id, exc)
