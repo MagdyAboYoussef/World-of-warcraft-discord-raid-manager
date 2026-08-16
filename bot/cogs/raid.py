@@ -92,15 +92,16 @@ class RaidCog(commands.Cog):
     @raid.command(name="create", description="Post a new raid signup board (admin only)")
     @app_commands.describe(
         title="Raid title, e.g. 'Manaforge Omega — Mythic'",
-        description="Optional blurb: loot rules, invites time, requirements…",
-        when="Server time: '20:30', 'wed 20:30', 'tomorrow 20:30', '2026-07-22 20:30', 'in 90m'",
-        duration="How long the raid runs: '3h', '2h30m', '90m'",
-        timezone="Your region — EU, NA, KR, TW, OCE. Defaults to your last raid's",
-        tanks="Target tank count",
-        healers="Target healer count",
-        melee="Target melee DPS count (leave blank if you set dps)",
-        ranged="Target ranged DPS count (leave blank if you set dps)",
-        dps="One combined DPS target instead of separate melee/ranged ones",
+        description="(optional) Blurb: loot rules, invite time, requirements…",
+        when="(optional) Server time: '20:30', 'wed 20:30', 'tomorrow 20:30', 'in 90m'",
+        duration="(optional) How long the raid runs: '3h', '2h30m', '90m'",
+        timezone="(optional) EU, NA, KR, TW, OCE. Defaults to your last raid's region",
+        tanks="(optional) Target tank count. Default 2",
+        healers="(optional) Target healer count. Default 4",
+        melee="(optional) Target melee count. Default 7, and unused if you set dps",
+        ranged="(optional) Target ranged count. Default 7, and unused if you set dps",
+        dps="(optional) One combined DPS target replacing melee and ranged, e.g. 14",
+        auto_accept="(optional) Accept every application immediately. Default false",
     )
     @admin_only()
     async def create(
@@ -121,6 +122,7 @@ class RaidCog(commands.Cog):
         melee: app_commands.Range[int, 0, 40] | None = None,
         ranged: app_commands.Range[int, 0, 40] | None = None,
         dps: app_commands.Range[int, 0, 80] | None = None,
+        auto_accept: bool = False,
     ) -> None:
         if dps is not None and (melee is not None or ranged is not None):
             await interaction.response.send_message(
@@ -182,6 +184,7 @@ class RaidCog(commands.Cog):
             duration_minutes=duration_minutes,
             timezone=tz_name,
             caps=caps,
+            auto_accept=auto_accept,
         )
 
         await interaction.response.send_message(

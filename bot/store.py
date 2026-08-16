@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS raids (
     duration_minutes INTEGER,
     timezone    TEXT,
     state       TEXT NOT NULL DEFAULT 'open',
+    auto_accept INTEGER NOT NULL DEFAULT 0,
     caps        TEXT NOT NULL,
     created_at  INTEGER NOT NULL
 );
@@ -137,6 +138,9 @@ class Raid:
     #: Region shorthand or IANA name. None means "use the configured default".
     timezone: str | None
     state: RaidState
+    #: Accept applications the moment they arrive, instead of queueing them as
+    #: Pending for a raid lead to work through.
+    auto_accept: bool
     caps: dict[str, int]
     created_at: int
 
@@ -192,6 +196,10 @@ class Store:
             self.db.execute("ALTER TABLE raids ADD COLUMN duration_minutes INTEGER")
         if "timezone" not in columns:
             self.db.execute("ALTER TABLE raids ADD COLUMN timezone TEXT")
+        if "auto_accept" not in columns:
+            self.db.execute(
+                "ALTER TABLE raids ADD COLUMN auto_accept INTEGER NOT NULL DEFAULT 0"
+            )
 
     def close(self) -> None:
         self.db.close()
@@ -232,17 +240,18 @@ class Store:
         duration_minutes: int | None = None,
         timezone: str | None = None,
         caps: dict[str, int] | None = None,
+        auto_accept: bool = False,
     ) -> Raid:
         caps = caps or dict(DEFAULT_CAPS)
         cur = self.db.execute(
             """INSERT INTO raids (guild_id, channel_id, title, description, leader_id,
-                                  starts_at, duration_minutes, timezone, state, caps,
-                                  created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                                  starts_at, duration_minutes, timezone, state,
+                                  auto_accept, caps, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 guild_id, channel_id, title, description, leader_id, starts_at,
-                duration_minutes, timezone, RaidState.OPEN.value, json.dumps(caps),
-                int(time.time()),
+                duration_minutes, timezone, RaidState.OPEN.value, int(auto_accept),
+                json.dumps(caps), int(time.time()),
             ),
         )
         raid = self.get_raid(int(cur.lastrowid))
@@ -253,6 +262,8 @@ class Store:
         data = dict(row)
         data["caps"] = json.loads(data["caps"])
         data["state"] = RaidState(data["state"])
+        # SQLite has no boolean type; the column round-trips as 0/1.
+        data["auto_accept"] = bool(data["auto_accept"])
         return Raid(**data)
 
     def get_raid(self, raid_id: int) -> Raid | None:
@@ -275,6 +286,11 @@ class Store:
 
     def set_raid_state(self, raid_id: int, state: RaidState) -> None:
         self.db.execute("UPDATE raids SET state=? WHERE id=?", (state.value, raid_id))
+
+    def set_auto_accept(self, raid_id: int, enabled: bool) -> None:
+        self.db.execute(
+            "UPDATE raids SET auto_accept=? WHERE id=?", (int(enabled), raid_id)
+        )
 
     def set_caps(self, raid_id: int, caps: dict[str, int]) -> None:
         self.db.execute("UPDATE raids SET caps=? WHERE id=?", (json.dumps(caps), raid_id))

@@ -477,6 +477,80 @@ with tempfile.TemporaryDirectory() as tmp:
     packed.close()
     store.close()
 
+print("\n[7d] auto-accept")
+with tempfile.TemporaryDirectory() as tmp:
+    store = Store(Path(tmp) / "auto.sqlite3")
+
+    off = store.create_raid(
+        guild_id=1, channel_id=1, title="Manual", description=None, leader_id=1,
+        starts_at=None,
+    )
+    check("defaults to off", off.auto_accept is False, repr(off.auto_accept))
+    check("it is a real bool, not sqlite's 0/1", isinstance(off.auto_accept, bool))
+
+    on = store.create_raid(
+        guild_id=1, channel_id=1, title="Auto", description=None, leader_id=1,
+        starts_at=None, auto_accept=True,
+    )
+    check("can be set at creation", store.get_raid(on.id).auto_accept is True)
+
+    store.set_auto_accept(off.id, True)
+    check("can be toggled on", store.get_raid(off.id).auto_accept is True)
+    store.set_auto_accept(off.id, False)
+    check("can be toggled off", store.get_raid(off.id).auto_accept is False)
+
+    # The promotion rule itself, as submit_application applies it.
+    def resolved(raid_auto: bool, applied_as: Status) -> Status:
+        return (
+            Status.ACCEPTED
+            if raid_auto and applied_as is Status.PENDING
+            else applied_as
+        )
+
+    check("auto-accept promotes a pending application",
+          resolved(True, Status.PENDING) is Status.ACCEPTED)
+    check("without it, applications stay pending",
+          resolved(False, Status.PENDING) is Status.PENDING)
+    for deliberate in (Status.BENCH, Status.ABSENT, Status.TENTATIVE):
+        check(f"never overrides a deliberate {deliberate.label}",
+              resolved(True, deliberate) is deliberate)
+
+    embed = build_raid_embed(store.get_raid(on.id), [])
+    check("board announces auto-accept", "Auto-accept is on" in embed.description)
+    check("board stays quiet when it is off",
+          "Auto-accept" not in build_raid_embed(store.get_raid(off.id), []).description)
+    store.close()
+
+print("\n[7e] auto_accept migrates onto a database that predates it")
+with tempfile.TemporaryDirectory() as tmp:
+    import sqlite3 as _sqlite3
+
+    path = Path(tmp) / "old.sqlite3"
+    # A raids table exactly as it looked before the column existed.
+    old = _sqlite3.connect(path)
+    old.executescript("""
+        CREATE TABLE raids (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL, message_id INTEGER, title TEXT NOT NULL,
+            description TEXT, leader_id INTEGER NOT NULL, starts_at INTEGER,
+            duration_minutes INTEGER, timezone TEXT,
+            state TEXT NOT NULL DEFAULT 'open', caps TEXT NOT NULL,
+            created_at INTEGER NOT NULL);
+        INSERT INTO raids (guild_id, channel_id, title, leader_id, state, caps, created_at)
+        VALUES (1, 1, 'Pre-existing raid', 1, 'open', '{"tank": 2}', 0);
+    """)
+    old.commit()
+    old.close()
+
+    store = Store(path)          # must not raise
+    raid = store.get_raid(1)
+    check("existing raid still loads", raid is not None and raid.title == "Pre-existing raid")
+    check("back-filled as off", raid.auto_accept is False)
+    check("new raids still work after migrating",
+          store.create_raid(guild_id=1, channel_id=1, title="After", description=None,
+                            leader_id=1, starts_at=None, auto_accept=True).auto_accept is True)
+    store.close()
+
 print("\n[8] hardening: hostile input and Discord's hard limits")
 from bot.ui.common import SAFE_MENTIONS, normalise_logs_url  # noqa: E402
 from bot.ui.embeds import (  # noqa: E402

@@ -189,6 +189,13 @@ async def submit_application(
         await interaction.response.send_message("Unknown spec, please retry.", ephemeral=True)
         return
 
+    raid = store.get_raid(raid_id)
+    # Auto-accept only ever promotes Pending. Someone who deliberately signed up
+    # as Bench, Absent or Tentative has said something specific about their
+    # availability, and accepting them over that would be wrong.
+    if raid is not None and raid.auto_accept and status is Status.PENDING:
+        status = Status.ACCEPTED
+
     store.upsert_signup(
         raid_id=raid_id,
         user_id=interaction.user.id,

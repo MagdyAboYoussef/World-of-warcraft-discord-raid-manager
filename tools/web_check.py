@@ -174,6 +174,7 @@ async def main() -> None:
           next(b for b in state["buffs"] if b["key"] == "lust")["icon"]
           == "spell_nature_bloodlust")
     check("every signup carries a spec icon", all(s["icon"] for s in state["signups"]))
+    check("auto_accept exposed to the page", state["raid"]["auto_accept"] is False)
     check("expiry is 30 days past raid end",
           abs(state["raid"]["expires_at"] - (now + 3600 + 180 * 60 + 30 * 86400)) <= 1)
 

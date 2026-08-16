@@ -226,6 +226,13 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         )
     description_parts.append(f"👑 Raid Lead: <@{raid.leader_id}>")
 
+    if raid.auto_accept and raid.state is RaidState.OPEN:
+        # Worth stating on the board: it changes what pressing Apply does, and a
+        # raider who expects to wait in a queue should know they are already in.
+        description_parts.append(
+            "⚡ **Auto-accept is on** — applications are accepted straight away."
+        )
+
     if targets_data.is_combined(raid.caps):
         # Only shown in combined mode. Without it the melee and ranged fields
         # below carry a bare count and the DPS target would appear nowhere;

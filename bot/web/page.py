@@ -477,6 +477,11 @@ function renderHeader() {
     el('span', null, raid.region + ' server time'),
     el('span', null, 'link expires in ' + fmtLeft(state.expires_at)),
   );
+  if (raid.auto_accept) {
+    const badge = el('span', 'pill open', '\u26a1 auto-accept');
+    badge.title = 'New applications are accepted immediately';
+    meta.appendChild(badge);
+  }
 
   const counts = {};
   for (const s of state.signups) counts[s.status] = (counts[s.status] || 0) + 1;

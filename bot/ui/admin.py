@@ -602,6 +602,34 @@ class RaidSettings(discord.ui.View):
         await interaction.response.send_message("🛑 Raid cancelled.", ephemeral=True)
         await refresh_raid_message(interaction.client, self.raid_id)
 
+    @discord.ui.button(label="Auto-accept", emoji="⚡", style=discord.ButtonStyle.primary, row=1)
+    async def toggle_auto_accept(
+        self, interaction: discord.Interaction, _b: discord.ui.Button
+    ) -> None:
+        raid = self._raid(interaction)
+        enabled = not raid.auto_accept
+        store_of(interaction).set_auto_accept(self.raid_id, enabled)
+        log.info(
+            "raid #%s: %s set auto-accept %s", self.raid_id, interaction.user, enabled
+        )
+        # Turning it on does not sweep up the people already queued: they were
+        # left pending by a decision someone made, and silently accepting them
+        # all is not what "accept new applications" asks for.
+        pending = len(store_of(interaction).signups(self.raid_id, Status.PENDING))
+        note = (
+            f" The {pending} already pending stay pending — accept them from "
+            "**Manage roster** if you want them in."
+            if enabled and pending
+            else ""
+        )
+        await interaction.response.send_message(
+            f"⚡ Auto-accept is now **{'on' if enabled else 'off'}**."
+            + (" New applications are accepted immediately." if enabled else "")
+            + note,
+            ephemeral=True,
+        )
+        await refresh_raid_message(interaction.client, self.raid_id)
+
     @discord.ui.button(label="Done", emoji="✔️", style=discord.ButtonStyle.secondary, row=1)
     async def done(self, interaction: discord.Interaction, _b: discord.ui.Button) -> None:
         await interaction.response.edit_message(content="✔️ Closed.", embed=None, view=None)
@@ -628,6 +656,7 @@ async def open_raid_settings(interaction: discord.Interaction, raid_id: int) -> 
                 else ""
             )
             + f"\nRealm region: **{region_label(raid.timezone)}**"
+            + f"\nAuto-accept: **{'on' if raid.auto_accept else 'off'}**"
         ),
         color=0x5865F2,
     )

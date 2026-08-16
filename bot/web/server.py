@@ -277,6 +277,7 @@ class RaidWebServer:
                 "description": raid.description,
                 "state": raid.state.value,
                 "editable": raid.state is RaidState.OPEN,
+                "auto_accept": raid.auto_accept,
                 "starts_at": raid.starts_at,
                 "duration_minutes": raid.duration_minutes,
                 "region": region_label(raid.timezone),

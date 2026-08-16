@@ -101,7 +101,15 @@ check("roster manager <=5 rows", max(rows) < 5, f"rows={sorted(rows)}")
 check("no row exceeds 5 components", all(n <= 5 for n in rows.values()), str(rows))
 check("selects present", any(isinstance(c, discord.ui.Select) for c in manager.children))
 settings = RaidSettings(1)
-check("settings view builds", len(settings.children) == 5, str(len(settings.children)))
+settings_rows: dict[int, int] = {}
+for item in settings.children:
+    settings_rows[item.row or 0] = settings_rows.get(item.row or 0, 0) + 1
+check("settings view builds", bool(settings.children), str(len(settings.children)))
+check("settings uses <=5 rows", len(settings_rows) <= 5, str(sorted(settings_rows)))
+check("no settings row exceeds 5 components",
+      all(n <= 5 for n in settings_rows.values()), str(settings_rows))
+check("settings has an auto-accept toggle",
+      any(getattr(c, "label", None) == "Auto-accept" for c in settings.children))
 check(
     "settings has a Done button",
     any(getattr(c, "label", None) == "Done" for c in settings.children),
@@ -133,6 +141,22 @@ check(
     "inspect_db does not open the WAL database read-only",
     not any("mode=ro" in line for line in inspect_code),
 )
+
+print("\n[5b] /raid create option descriptions")
+_create = next(c for c in RaidCog.raid.commands if c.name == "create")
+for _p in _create.parameters:
+    check(f"{_p.name}: description within Discord's 100 chars",
+          len(_p.description) <= 100, str(len(_p.description)))
+_optional = [p for p in _create.parameters if not p.required]
+check("only `title` is required",
+      [p.name for p in _create.parameters if p.required] == ["title"])
+check("every optional option is marked (optional)",
+      all(p.description.startswith("(optional)") for p in _optional),
+      str([p.name for p in _optional if not p.description.startswith("(optional)")]))
+check("auto_accept exists and defaults to false",
+      any(p.name == "auto_accept" and p.default is False for p in _create.parameters))
+check("melee/ranged say they are unused with dps",
+      all("dps" in p.description for p in _optional if p.name in ("melee", "ranged")))
 
 print("\n[6] command tree")
 group = RaidCog.raid
