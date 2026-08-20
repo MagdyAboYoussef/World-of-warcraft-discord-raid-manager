@@ -7,35 +7,55 @@ completely incapable of organising a Tuesday night.
 
 So, I built this for us. It turned out to be genuinely useful, so here it is for
 any other guild that needs it.
+
 To add this to your discord as I self host it: https://discord.com/oauth2/authorize?client_id=1528172224392204420&permissions=347136&scope=bot+applications.commands
+
 Or you can self host it instead!
 
 <img width="652" height="933" alt="image" src="https://github.com/user-attachments/assets/2e9ec943-8840-46eb-bde3-a684fbcb47dd" />
+
 You create the raid using /raid create command
 Which allows you to set multiple options 
+
 <img width="1547" height="362" alt="image" src="https://github.com/user-attachments/assets/6fd61ee8-f3fb-49ef-ad13-196b50628b44" />
 And selecting any options allows you to autofill the data: 
+
 <img width="1541" height="282" alt="image" src="https://github.com/user-attachments/assets/ca9f1fc0-7472-4f23-94ec-5edef2223abc" />
 <img width="1494" height="416" alt="image" src="https://github.com/user-attachments/assets/e4057096-5c2f-4bed-9c96-ead0b3398fba" />
 
 You have multiple flags and they are: 
+
 **Title:** Title of the raid
+
 **Description:** Description you want to add
+
 **When:** Autofilled as per example Tuesday, 19:00  ·  Tue 25 Aug
+
 **Duration:** Ex: 3h
+
 **timezone:** EU/NA/KR/TW   
+
 **tanks:** Number of tanks (defaults to 2)
+
 **healers:** Number of healers (defaults to 4)
+
 **dps:** Numebr of dps (Defaults to 14)
+
 **auto-accept:** This is if you don't want to recieve who applies and automatically accept any
+
 **ranged:** Optional if you want to set specific number for ranged as Midnight S1 we had to run 9 ranged and 5 melees
+
 **melee:** Optional
+
 When applying you can set the following fields: 
+
 <img width="369" height="375" alt="image" src="https://github.com/user-attachments/assets/b1f13e7c-41f4-4496-a639-4521b5d48ac1" />
 
 
-And finally if you are have discord roles: "Admin" , "Raid Leader" , "Officer" 
+And finally if you are have discord roles: "Admin" , "Raid Leader" , "Officer"
+
 Then you can manage the guild roster and select your UI board for the raid: 
+
 By selecting UI Board you can adjust the roster in a fancy dashboard instead and view your missing buffs/available buffs etc..
 <img width="1219" height="942" alt="image" src="https://github.com/user-attachments/assets/8eb25753-ea8e-413b-beed-5dae8aba1bfa" />
 
