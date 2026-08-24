@@ -19,7 +19,7 @@ import discord
 from discord.ext import tasks
 
 from ..config import PRIMARY_REGIONS, RAID_TIMEZONE, REGION_LABELS, resolve_timezone
-from ..store import Raid, RaidState, Status
+from ..store import Raid, RaidState, Status, raid_is_closed
 from .common import SAFE_MENTIONS
 
 if TYPE_CHECKING:
@@ -339,6 +339,8 @@ class ReminderTask:
                 log.exception("reminder sweep failed for guild %s", guild.id)
 
     async def _check_guild(self, guild_id: int, now: int) -> None:
+        await self._close_finished_boards(guild_id)
+
         store = self.client.store
         for raid in store.open_raids(guild_id):
             if raid.starts_at is None or raid.state is not RaidState.OPEN:
@@ -351,6 +353,29 @@ class ReminderTask:
                 # reminder has already been sent, including by a previous run.
                 if store.claim_reminder(raid.id, offset):
                     await self._announce(raid)
+
+    async def _close_finished_boards(self, guild_id: int) -> None:
+        """Redraw boards that have quietly gone past their end time.
+
+        Every other state change is triggered by somebody doing something, and
+        redraws the board as a side effect. A raid ending is triggered by
+        nothing at all - the clock passes and no signup or command follows - so
+        without this a finished raid keeps its signup buttons and buff panels
+        until the next person happens to touch it, which for a raid that is
+        already over is usually never.
+
+        The claim is persisted, so this costs one edit per raid ever rather
+        than one per minute forever.
+        """
+        from .common import refresh_raid_message
+
+        store = self.client.store
+        for raid in store.boards_awaiting_close(guild_id):
+            if not raid_is_closed(raid):
+                continue
+            await refresh_raid_message(self.client, raid.id)
+            store.mark_board_closed(raid.id)
+            log.info("raid #%s: board closed (raid is over)", raid.id)
 
     async def _announce(self, raid: Raid) -> None:
         accepted = self.client.store.signups(raid.id, Status.ACCEPTED)

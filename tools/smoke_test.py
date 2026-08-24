@@ -599,6 +599,42 @@ with tempfile.TemporaryDirectory() as tmp:
           any("Buff" in n for n in field_names(undated)))
     store.close()
 
+print("\n[7g] a finished board gets exactly one closing redraw")
+with tempfile.TemporaryDirectory() as tmp:
+    import time as _t2
+
+    from bot.store import raid_is_closed as _closed
+
+    store = Store(Path(tmp) / "sweep.sqlite3")
+    now = int(_t2.time())
+    over = store.create_raid(guild_id=1, channel_id=1, title="Over", description=None,
+                             leader_id=1, starts_at=now - 86400, duration_minutes=180)
+    soon = store.create_raid(guild_id=1, channel_id=1, title="Upcoming", description=None,
+                             leader_id=1, starts_at=now + 86400, duration_minutes=180)
+    undated = store.create_raid(guild_id=1, channel_id=1, title="Undated", description=None,
+                                leader_id=1, starts_at=None)
+    for r in (over, soon, undated):
+        store.set_raid_message(r.id, 1000 + r.id)
+
+    def due():
+        return [r.id for r in store.boards_awaiting_close(1) if _closed(r)]
+
+    check("a finished raid is queued for its closing redraw", due() == [over.id], str(due()))
+    check("board_closed_at starts empty", store.get_raid(over.id).board_closed_at is None)
+
+    store.mark_board_closed(over.id)
+    check("claimed after the redraw", store.get_raid(over.id).board_closed_at is not None)
+    check("never redrawn twice", due() == [], str(due()))
+    check("an upcoming raid is left alone", soon.id not in due())
+    check("an undated raid is left alone", undated.id not in due())
+
+    # A raid with no message cannot be redrawn, so it must not sit in the queue.
+    ghost = store.create_raid(guild_id=1, channel_id=1, title="Never posted", description=None,
+                              leader_id=1, starts_at=now - 86400, duration_minutes=180)
+    check("a raid that was never posted is excluded",
+          ghost.id not in [r.id for r in store.boards_awaiting_close(1)])
+    store.close()
+
 print("\n[8] hardening: hostile input and Discord's hard limits")
 from bot.ui.common import SAFE_MENTIONS, normalise_logs_url  # noqa: E402
 from bot.ui.embeds import (  # noqa: E402

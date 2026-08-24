@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS raids (
     timezone    TEXT,
     state       TEXT NOT NULL DEFAULT 'open',
     auto_accept INTEGER NOT NULL DEFAULT 0,
+    board_closed_at INTEGER,
     caps        TEXT NOT NULL,
     created_at  INTEGER NOT NULL
 );
@@ -143,6 +144,9 @@ class Raid:
     auto_accept: bool
     caps: dict[str, int]
     created_at: int
+    #: When the board was last re-rendered *because* the raid closed. NULL means
+    #: that final render still owes to happen - see ReminderTask.
+    board_closed_at: int | None = None
 
 
 @dataclass(slots=True)
@@ -215,6 +219,8 @@ class Store:
             self.db.execute(
                 "ALTER TABLE raids ADD COLUMN auto_accept INTEGER NOT NULL DEFAULT 0"
             )
+        if "board_closed_at" not in columns:
+            self.db.execute("ALTER TABLE raids ADD COLUMN board_closed_at INTEGER")
 
     def close(self) -> None:
         self.db.close()
@@ -301,6 +307,26 @@ class Store:
 
     def set_raid_state(self, raid_id: int, state: RaidState) -> None:
         self.db.execute("UPDATE raids SET state=? WHERE id=?", (state.value, raid_id))
+
+    def boards_awaiting_close(self, guild_id: int) -> list[Raid]:
+        """Raids whose board has not yet been redrawn in its closed form.
+
+        A board is only redrawn when something happens to it, and a raid ending
+        is the one state change that nothing triggers: the clock passes its end
+        time and no signup, button press or command follows. Without a sweep,
+        a finished raid keeps offering Apply until someone happens to touch it.
+        """
+        rows = self.db.execute(
+            "SELECT * FROM raids WHERE guild_id=? AND message_id IS NOT NULL"
+            " AND board_closed_at IS NULL",
+            (guild_id,),
+        ).fetchall()
+        return [self._raid(row) for row in rows]
+
+    def mark_board_closed(self, raid_id: int) -> None:
+        self.db.execute(
+            "UPDATE raids SET board_closed_at=? WHERE id=?", (int(time.time()), raid_id)
+        )
 
     def set_auto_accept(self, raid_id: int, enabled: bool) -> None:
         self.db.execute(
