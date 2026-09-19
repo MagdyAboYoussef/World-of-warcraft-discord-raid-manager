@@ -1,13 +1,5 @@
 # WoW Raid Bot
 
-Our raid group is a bunch of 30-somethings with real life, kids and full-time
-jobs. Collectively we have a lot of raiding experience. We are also, somehow,
-completely incapable of organising a Tuesday night.
-
-
-So, I built this for us. It turned out to be genuinely useful, so here it is for
-any other guild that needs it.
-
 To add this to your discord as I self host it: https://discord.com/oauth2/authorize?client_id=1528172224392204420&permissions=347136&scope=bot+applications.commands
 
 Or you can self host it instead!
