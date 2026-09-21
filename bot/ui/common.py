@@ -134,10 +134,16 @@ def split_character(name: str | None) -> tuple[str, str] | None:
 
 
 def _wcl_slug(text: str) -> str:
-    """Slug a name or realm the way a Warcraft Logs URL segment expects it."""
-    text = text.strip().lower().replace("'", "")
+    """Slug a name or realm the way a Warcraft Logs URL segment expects it.
+
+    Keeps accented and other non-ASCII letters - WCL character pages use the
+    real name, so stripping them turned "matsú" into "mats" and "Kaïasana" into
+    "kaasana". Python's word-character class is Unicode-aware, so it matches
+    those letters; only genuinely URL/markdown-unsafe characters are dropped.
+    """
+    text = text.strip().casefold().replace("'", "").replace("\u2019", "")
     text = re.sub(r"[\s_]+", "-", text)
-    text = re.sub(r"[^a-z0-9-]", "", text)
+    text = re.sub(r"[^\w-]", "", text)  # \w is Unicode-aware: é, ï, ú, … survive
     return re.sub(r"-{2,}", "-", text).strip("-")
 
 

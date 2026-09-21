@@ -917,6 +917,15 @@ check("empty / missing inputs -> None",
 check("every derived link passes the same gate a typed one faces",
       all(WCL_RE.match(derive_logs_url(c, "EU")) for c in
           ("mimz-kazzak", "Acidtab-Tarren Mill", "Ka'el-Argent Dawn")))
+check("an accented name keeps its accent (matsú, not mats)",
+      derive_logs_url("matsú-Draenor", "EU")
+      == "https://www.warcraftlogs.com/character/eu/draenor/matsú")
+check("a diaeresis survives (Kaïasana, not Kaasana)",
+      derive_logs_url("Kaïasana-Ysondre", "EU")
+      == "https://www.warcraftlogs.com/character/eu/ysondre/kaïasana")
+check("a spaced realm with an accented name still slugs both",
+      derive_logs_url("Ocbslìm-Tarren Mill", "EU")
+      == "https://www.warcraftlogs.com/character/eu/tarren-mill/ocbslìm")
 check("only the first hyphen splits name from realm",
       derive_logs_url("Name-Two-Word", "EU")
       == "https://www.warcraftlogs.com/character/eu/two-word/name")
