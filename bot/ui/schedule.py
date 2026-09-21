@@ -41,7 +41,7 @@ WEEKDAYS = {
 
 #: Minutes before start at which to ping the accepted roster. A single warning,
 #: with no separate ping at start time itself.
-REMINDER_OFFSETS = (10,)
+REMINDER_OFFSETS = (15,)
 
 
 def _tz(name: str | None = None) -> ZoneInfo | timezone:
