@@ -25,6 +25,7 @@ os.environ["DB_PATH"] = str(_TMP / "raid.sqlite3")
 os.environ["WEB_BASE_URL"] = "https://wow-raid-manager.magdy.org"
 os.environ["WEB_SECRET"] = "signing-secret-for-tests"
 os.environ["WEB_RETENTION_DAYS"] = "30"
+os.environ["OVERVIEW_KEY"] = "overview-key-for-tests"
 
 from aiohttp.test_utils import TestClient, TestServer  # noqa: E402
 from aiohttp import web as aioweb  # noqa: E402
@@ -46,20 +47,65 @@ GUILD = 1000
 ADMIN = 2001
 RAIDER = 3001
 OUTSIDER = 2002
+#: An administrator whose role is absent from the guild's role cache - the
+#: shape that used to refuse a raid lead access to their own raid.
+CACHE_MISS = 2003
 
 
-class FakeMember:
-    def __init__(self, allowed: bool) -> None:
+class FakeUser:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class FakeRole:
+    def __init__(self, role_id: int, name: str, administrator: bool = False) -> None:
+        self.id = role_id
+        self.name = name
+        self.permissions = type("P", (), {"administrator": administrator})()
+
+    def is_default(self) -> bool:
+        return self.name == "@everyone"
+
+
+class FakeMember(FakeUser):
+    def __init__(
+        self,
+        allowed: bool,
+        name: str = "member",
+        member_id: int = 0,
+        roles: tuple[int, ...] = (),
+    ) -> None:
+        super().__init__(name)
         self.allowed = allowed
+        self.id = member_id
+        # Mirrors discord.Member: raw role ids, resolved through the guild's
+        # role cache by the `roles` property. An empty `roles` with a non-empty
+        # `_roles` is exactly the cache-miss shape this guards against.
+        self._roles = roles
+        self.roles: list = []
 
 
 class FakeGuild:
     def __init__(self) -> None:
-        self.members = {ADMIN: FakeMember(True), OUTSIDER: FakeMember(False)}
+        self.id = GUILD
+        self.name = "Test Guild <b>"  # angle brackets: must come out escaped
+        self.owner_id = 999_000
+        self.members = {
+            ADMIN: FakeMember(True, "raidlead", ADMIN),
+            OUTSIDER: FakeMember(False, "randomer", OUTSIDER),
+            # Holds Administrator, but only via a role the cache never saw.
+            CACHE_MISS: FakeMember(False, "ghostadmin", CACHE_MISS, roles=(77,)),
+        }
         self.fetches = 0
+        self.role_fetches = 0
+        self.roles = [FakeRole(1, "@everyone"), FakeRole(77, "Overlord", administrator=True)]
 
     def get_member(self, user_id: int):
         return None  # mirrors reality: this bot runs without the members intent
+
+    async def fetch_roles(self):
+        self.role_fetches += 1
+        return self.roles
 
     async def fetch_member(self, user_id: int):
         self.fetches += 1
@@ -73,9 +119,31 @@ class FakeBot:
     def __init__(self, store: Store, guild: FakeGuild) -> None:
         self.store = store
         self._guild = guild
+        # Mirrors discord.py: get_user is the local cache and is usually empty
+        # for someone the bot has not seen this run, fetch_user hits the API.
+        self.users = {
+            RAIDER: FakeUser("tankadin"),
+            RAIDER + 1: FakeUser("healbot"),
+            RAIDER + 2: FakeUser("stabby"),
+        }
+        self.user_fetches = 0
+        self._ready = True  # tests flip this to exercise the warm-up window
+
+    def is_ready(self) -> bool:
+        return self._ready
 
     def get_guild(self, guild_id: int):
         return self._guild if guild_id == GUILD else None
+
+    def get_user(self, user_id: int):
+        return None
+
+    async def fetch_user(self, user_id: int):
+        self.user_fetches += 1
+        user = self.users.get(user_id)
+        if user is None:
+            raise LookupError("no such user")
+        return user
 
 
 refreshes: list[int] = []
@@ -86,6 +154,11 @@ async def main() -> None:
     # role lookup so the surrounding cache/fetch path is what gets tested.
     websrv.is_admin = lambda member: member.allowed
     websrv.request_raid_refresh = lambda _bot, raid_id: refreshes.append(raid_id)
+    refresh_ok = {"value": True}
+    async def _fake_refresh(_bot, raid_id):
+        refreshes.append(raid_id)
+        return refresh_ok["value"]
+    websrv.refresh_raid_message = _fake_refresh
 
     store = Store()
     guild = FakeGuild()
@@ -126,7 +199,11 @@ async def main() -> None:
         aioweb.get("/r/{token}/state", srv.handle_state),
         aioweb.post("/r/{token}/status", srv.handle_status),
         aioweb.post("/r/{token}/spec", srv.handle_spec),
+        aioweb.post("/r/{token}/character", srv.handle_character),
+        aioweb.post("/r/{token}/note", srv.handle_note),
         aioweb.post("/r/{token}/remove", srv.handle_remove),
+        aioweb.post("/r/{token}/refresh", srv.handle_refresh),
+        aioweb.get("/overview/{key}", srv.handle_overview),
     ])
     client = TestClient(TestServer(app))
     await client.start_server()
@@ -140,6 +217,45 @@ async def main() -> None:
     check("denies framing", res.headers.get("X-Frame-Options") == "DENY")
     check("not cached", res.headers.get("Cache-Control") == "no-store")
     check("title rendered", "Manaforge Omega" in html)
+    check("activity log panel served", 'id="log"' in html)
+
+    # The preview and the live page share one body template precisely because
+    # they used to drift; this catches the other half of that bug - a script
+    # that reaches for an element the markup never grew.
+    import re as _re
+
+    from bot.web.page import BODY, SCRIPT
+
+    wanted = set(_re.findall(r"\$\('#([a-z0-9-]+)'\)", SCRIPT))
+    present = set(_re.findall(r'id="([a-z0-9-]+)"', BODY))
+    check("every element the client script writes to exists in the page",
+          wanted <= present, f"missing {sorted(wanted - present)}")
+
+    # SCRIPT is a plain (non-raw) Python string, so a "\n" written in page.py
+    # becomes a real newline in the JavaScript. Inside a JS string literal that
+    # is a syntax error, the whole script fails to parse, and the page renders
+    # as an empty shell with every panel blank - while every other check here
+    # still passes, because the server side is perfectly healthy.
+    def unterminated(line: str) -> str | None:
+        quote, i = None, 0
+        while i < len(line):
+            c = line[i]
+            if quote:
+                if c == "\\":
+                    i += 2
+                    continue
+                if c == quote:
+                    quote = None
+            elif c in "'\"":
+                quote = c
+            elif c == "/" and line[i + 1:i + 2] == "/":
+                break
+            i += 1
+        return quote
+
+    dangling = [n for n, line in enumerate(SCRIPT.splitlines(), 1) if unterminated(line)]
+    check("no JS string literal runs past its line", not dangling,
+          f"lines {dangling} — an unescaped newline breaks the entire script")
 
     res = await client.get("/r/rubbish")
     check("bad token gets an error page", res.status == 401)
@@ -156,6 +272,50 @@ async def main() -> None:
     for _ in range(3):
         await client.get(f"/r/{good}/state")
     check("admin lookups are cached", guild.fetches == before, f"{guild.fetches - before} fetches")
+
+    print("\n[3a] startup warm-up window")
+    # A raid whose guild the bot cannot see yet. Before READY this is a cold
+    # cache, not a real absence, so it must read as "starting up", not "no
+    # access" - and it must NOT poison the admin cache with a False that would
+    # linger after the gateway connects.
+    orphan = store.create_raid(
+        guild_id=GUILD + 777, channel_id=9, title="Elsewhere", description=None,
+        leader_id=ADMIN, starts_at=now + 3600,
+    )
+    otok = tokens.issue(orphan.id, ADMIN)
+    bot._ready = False
+    res = await client.get(f"/r/{otok}/state")
+    check("cold cache during startup -> 503, not 403", res.status == 503, f"got {res.status}")
+    check("nothing cached from the warm-up miss",
+          (orphan.guild_id, ADMIN) not in srv._admin_cache)
+    bot._ready = True
+    res = await client.get(f"/r/{otok}/state")
+    check("once ready, an unreachable guild -> 403", res.status == 403, f"got {res.status}")
+
+    # The bug this whole section exists for: a warm-up 503 must not lock a real
+    # admin out of their OWN reachable raid afterwards.
+    bot._ready = False
+    await client.get(f"/r/{good}/state")  # arrives mid-startup
+    bot._ready = True
+    res = await client.get(f"/r/{good}/state")
+    check("a real admin is not locked out after a startup blip",
+          res.status == 200, f"got {res.status}")
+
+    # The regression: an administrator whose role is missing from the guild's
+    # role cache. member.guild_permissions computes zero from an empty role
+    # list, and the page used to tell them they had lost access to their raid.
+    ghost = tokens.issue(raid.id, CACHE_MISS)
+    res = await client.get(f"/r/{ghost}/state")
+    check("an admin missed by the role cache is admitted", res.status == 200,
+          f"got {res.status} — this is the 'You no longer have permission' bug")
+    check("it took a REST role fetch to establish that", guild.role_fetches >= 1)
+
+    srv._admin_cache.clear()
+    before = guild.role_fetches
+    res = await client.get(f"/r/{tokens.issue(raid.id, OUTSIDER)}/state")
+    check("a genuine non-admin is still refused", res.status == 403, f"got {res.status}")
+    check("and the REST fallback was consulted before refusing them",
+          guild.role_fetches == before + 1)
 
     print("\n[4] state payload")
     state = await (await client.get(f"/r/{good}/state")).json()
@@ -177,6 +337,44 @@ async def main() -> None:
     check("auto_accept exposed to the page", state["raid"]["auto_accept"] is False)
     check("expiry is 30 days past raid end",
           abs(state["raid"]["expires_at"] - (now + 3600 + 180 * 60 + 30 * 86400)) <= 1)
+
+    print("\n[4b] who to recruit")
+    rec = {r["wow_class"]: r for r in state["recruit"]}
+    gaps = {b["label"] for b in state["buffs"] if not b["covered"]}
+    check("recruit list reaches the page", bool(rec))
+    check("every suggestion carries a class icon and colour",
+          all(r["icon"] and r["color"].startswith("#") for r in rec.values()))
+    check("nothing is suggested for a buff that is already covered",
+          all(c["label"] in gaps for r in rec.values() for c in r["covers"]),
+          "a covered buff must never appear as a reason to invite anyone")
+    check("count matches the listed fixes",
+          all(r["count"] == len(r["covers"]) for r in rec.values()))
+    check("best-first", [r["count"] for r in state["recruit"]]
+          == sorted((r["count"] for r in state["recruit"]), reverse=True))
+    check("a spec-locked gap names its specs",
+          rec["Hunter"]["covers"] and any(
+              c["specs"] == ["Beast Mastery"] for c in rec["Hunter"]["covers"]),
+          str(rec.get("Hunter")))
+    check("an unrestricted gap sends no spec list",
+          any(c["specs"] == [] for c in rec["Hunter"]["covers"]))
+
+    # Accepting a mage must retire Intellect from both panels at once - they are
+    # two readings of one evaluation, and a disagreement between them would be
+    # worse than either being wrong alone.
+    store.upsert_signup(
+        raid_id=raid.id, user_id=6001, character_name="Bolty", logs_url=None,
+        spec_key="mage_fire", status=Status.ACCEPTED,
+    )
+    after = await (await client.get(f"/r/{good}/state")).json()
+    still = {r["wow_class"]: r for r in after["recruit"]}
+    check("accepting a mage covers Arcane Intellect",
+          next(b for b in after["buffs"] if b["key"] == "arcane_intellect")["covered"])
+    check("...and nobody is recruited for it any more",
+          all(c["label"] != "Arcane Intellect"
+              for r in still.values() for c in r["covers"]))
+    check("...and Mage drops off the list entirely once it fixes nothing",
+          "Mage" not in still, str(list(still)))
+    store.remove_signup(raid.id, 6001)
 
     print("\n[5] mutations")
     res = await client.post(f"/r/{good}/status",
@@ -216,6 +414,118 @@ async def main() -> None:
     res = await client.post(f"/r/{good}/remove", json={"user_id": str(RAIDER + 2)})
     check("remove succeeds", res.status == 200)
     check("signup gone", store.get_signup(raid.id, RAIDER + 2) is None)
+
+    print("\n[5b] discord identity")
+    state = await (await client.get(f"/r/{good}/state")).json()
+    by_id = {s["user_id"]: s for s in state["signups"]}
+    check("handle resolved onto the card",
+          by_id[str(RAIDER)]["discord_name"] == "tankadin")
+    check("handle written back to the row",
+          store.get_signup(raid.id, RAIDER).discord_name == "tankadin")
+    before = bot.user_fetches
+    await client.get(f"/r/{good}/state")
+    check("a resolved handle is never fetched twice",
+          bot.user_fetches == before, f"{bot.user_fetches - before} extra fetches")
+
+    # A signup whose account has been deleted: the id resolves to nothing, and
+    # the page has to keep working rather than retrying it on every poll.
+    store.upsert_signup(
+        raid_id=raid.id, user_id=8888, character_name="Ghost", logs_url=None,
+        spec_key="mage_fire", status=Status.PENDING,
+    )
+    state = await (await client.get(f"/r/{good}/state")).json()
+    ghost = next(s for s in state["signups"] if s["user_id"] == "8888")
+    check("unresolvable account still renders", ghost["discord_name"] is None)
+    before = bot.user_fetches
+    for _ in range(3):
+        await client.get(f"/r/{good}/state")
+    check("an unresolvable account is not re-fetched on every poll",
+          bot.user_fetches == before, f"{bot.user_fetches - before} fetches")
+    store.remove_signup(raid.id, 8888)
+
+    print("\n[5c] audit log")
+    entries = store.audit_entries(raid.id)
+    check("mutations were recorded", len(entries) >= 4, f"{len(entries)} entries")
+    check("every entry names an actor", all(e.actor_id == ADMIN for e in entries))
+    check("the actor is named, not just numbered",
+          all(e.actor_name == "raidlead" for e in entries),
+          str({e.actor_name for e in entries}))
+    check("web actions are tagged as such", all(e.source == "web" for e in entries))
+
+    accept = next(e for e in reversed(entries) if e.action == "status")
+    check("status change records what it changed from and to",
+          accept.detail == "Tankadin — Pending -> Accepted", repr(accept.detail))
+    check("status change names its target", accept.target_id == RAIDER)
+    check("spec change recorded", any(e.action == "spec" for e in entries))
+    removal = next(e for e in entries if e.action == "remove")
+    check("removal outlives the row it deleted",
+          store.get_signup(raid.id, RAIDER + 2) is None and removal.target_id == RAIDER + 2)
+    check("removal remembers who it was",
+          removal.target_name == "stabby", repr(removal.target_name))
+
+    state = await (await client.get(f"/r/{good}/state")).json()
+    check("log reaches the page", len(state["audit"]) >= 4)
+    check("newest first", state["audit"][0]["id"] > state["audit"][-1]["id"])
+    check("page ids are strings",
+          all(isinstance(e["actor_id"], str) for e in state["audit"]))
+
+    # The trim is what stops one persistent troll growing the table forever.
+    from bot.store import AUDIT_RETAINED
+    for n in range(AUDIT_RETAINED + 20):
+        store.record_audit(raid_id=raid.id, action="status", source="web",
+                           actor_id=ADMIN, actor_name="raidlead", detail=f"noise {n}")
+    kept = store.db.execute(
+        "SELECT COUNT(*) c FROM audit_log WHERE raid_id=?", (raid.id,)
+    ).fetchone()["c"]
+    check("log is trimmed to its retention limit", kept == AUDIT_RETAINED, f"{kept} rows")
+    check("the trim keeps the newest",
+          store.audit_entries(raid.id, 1)[0].detail == f"noise {AUDIT_RETAINED + 19}")
+
+    print("\n[5d] admin edits a character name / server")
+    res = await client.post(f"/r/{good}/character",
+                            json={"user_id": str(RAIDER), "character": "Renamed-Kazzak"})
+    check("rename succeeds", res.status == 200, f"got {res.status}")
+    _sg = store.get_signup(raid.id, RAIDER)
+    check("character updated", _sg.character_name == "Renamed-Kazzak")
+    check("logs link re-derived from the new Name-Server",
+          _sg.logs_url == "https://www.warcraftlogs.com/character/eu/kazzak/renamed",
+          str(_sg.logs_url))
+    check("attributed to the link holder", _sg.updated_by == ADMIN)
+    res = await client.post(f"/r/{good}/character",
+                            json={"user_id": str(RAIDER), "character": "FlatName"})
+    check("a flat name is rejected", res.status == 400, f"got {res.status}")
+    check("the rename is in the audit log",
+          any(e.action == "character" for e in store.audit_entries(raid.id)))
+    # Restore the original character so later sections (the overview page) see
+    # the name they expect — this section is meant to be self-contained.
+    store.set_character(raid.id, RAIDER, "Tankadin", None, ADMIN)
+
+    print("\n[5d2] admin edits a note")
+    res = await client.post(f"/r/{good}/note",
+                            json={"user_id": str(RAIDER), "note": "  bring flasks  "})
+    check("note set (and trimmed)", res.status == 200
+          and store.get_signup(raid.id, RAIDER).note == "bring flasks")
+    check("note edit is attributed", store.get_signup(raid.id, RAIDER).updated_by == ADMIN)
+    res = await client.post(f"/r/{good}/note", json={"user_id": str(RAIDER), "note": ""})
+    check("empty note clears it", res.status == 200
+          and store.get_signup(raid.id, RAIDER).note is None)
+    check("a note edit is logged",
+          any(e.action == "note" for e in store.audit_entries(raid.id)))
+    res = await client.post(f"/r/{good}/note", json={"user_id": str(RAIDER)})
+    check("missing note field -> 400", res.status == 400, f"got {res.status}")
+
+    print("\n[5e] manual board refresh")
+    refresh_ok["value"] = True
+    res = await client.post(f"/r/{good}/refresh", json={})
+    check("refresh returns ok when the board updates", res.status == 200, f"got {res.status}")
+    check("it actually asked for a board redraw", refreshes and refreshes[-1] == raid.id)
+    refresh_ok["value"] = False
+    res = await client.post(f"/r/{good}/refresh", json={})
+    body = await res.json()
+    check("refresh reports failure the admin can act on", res.status == 502, f"got {res.status}")
+    check("with a message about channel access / repost",
+          "channel" in body.get("error", "").lower() or "repost" in body.get("error", "").lower())
+    refresh_ok["value"] = True
 
     print("\n[6] bad input")
     for label, payload, expect in (
@@ -291,6 +601,35 @@ async def main() -> None:
           and len(plain["targets"]) == 4
           and all(r["cap"] is not None for r in plain["roles"]))
     check("four-target size still right", plain["raid_size"] == 20)
+
+    print("\n[7b] overview page")
+    from bot.web import overview as ov
+
+    srv._overview_key = ov.load_key()
+    check("key loaded from the environment", srv._overview_key == "overview-key-for-tests")
+
+    res = await client.get("/overview/wrong-key")
+    check("wrong key -> 404, indistinguishable from no route", res.status == 404)
+    res = await client.get("/overview/")
+    check("empty key -> 404", res.status == 404)
+
+    res = await client.get(f"/overview/{srv._overview_key}")
+    page = await res.text()
+    check("right key -> 200", res.status == 200)
+    check("no-referrer on the overview too",
+          res.headers.get("Referrer-Policy") == "no-referrer")
+    check("CSP present", "nonce-" in res.headers.get("Content-Security-Policy", ""))
+    check("every raid listed", all(f"#{r.id} " in page for r in store.all_raids()))
+    check("signups listed with their handle", "Tankadin" in page and "@tankadin" in page)
+    check("guild name is escaped", "Test Guild &lt;b&gt;" in page and "<b>" not in page.split("<h2>")[1][:60])
+    check("both servers' raids appear under a header per server",
+          page.count('class="guild"') >= 1)
+
+    saved = srv._overview_key
+    srv._overview_key = None
+    res = await client.get(f"/overview/{saved}")
+    check("route is inert without a key", res.status == 404)
+    srv._overview_key = saved
 
     print("\n[8] retirement")
     old = store.create_raid(

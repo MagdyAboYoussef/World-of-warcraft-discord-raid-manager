@@ -11,12 +11,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from ..config import DEFAULT_CAPS, PRIMARY_REGIONS
+from ..config import ADMIN_ROLE_NAMES, DEFAULT_CAPS, PRIMARY_REGIONS
 from ..data.specs import ROLE_ORDER, get_spec
 from ..emojis import registry
 from ..store import Status
 from ..ui.admin import open_raid_settings, open_roster_manager, send_manager_link
-from ..ui.common import deny, is_admin
+from ..ui.common import admin_denial_reason, deny, interaction_is_admin
 
 if TYPE_CHECKING:
     from ..client import RaidClient
@@ -72,8 +72,14 @@ def autocomplete_guard(name: str):
 
 def admin_only():
     async def predicate(interaction: discord.Interaction) -> bool:
-        if is_admin(interaction.user):
+        if interaction_is_admin(interaction):
             return True
+        log.info(
+            "admin gate refused %s (%s) for /%s: %s",
+            interaction.user, interaction.user.id,
+            getattr(interaction.command, "qualified_name", "?"),
+            admin_denial_reason(interaction),
+        )
         raise app_commands.CheckFailure("admin_only")
 
     return app_commands.check(predicate)
@@ -333,7 +339,7 @@ class RaidCog(commands.Cog):
 
     @app_commands.command(name="help", description="How to use the raid bot")
     async def help_command(self, interaction: discord.Interaction) -> None:
-        admin = is_admin(interaction.user)
+        admin = interaction_is_admin(interaction)
         embed = discord.Embed(
             title="📖 Raid Bot — Help",
             description=(
@@ -349,7 +355,7 @@ class RaidCog(commands.Cog):
                 "**📝 Apply** — first time asks for your character name, logs link "
                 "(optional) and a note, then class → spec. After that it's remembered, "
                 "so re-applying next raid is one click.\n"
-                "**🪑 Bench me** — put yourself on the bench.\n"
+                "**⭐ Backup** — put yourself down as a backup.\n"
                 "**🚫 Absent** — mark yourself out for this raid.\n"
                 "**🗑️ Withdraw** — remove yourself entirely.\n\n"
                 "Your application sits as **🕓 Pending** until a raid lead accepts it."
@@ -447,8 +453,18 @@ class RaidCog(commands.Cog):
     async def cog_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
     ) -> None:
+        if isinstance(error, app_commands.NoPrivateMessage):
+            await deny(interaction, "Raid commands only work inside a server, not in a DM.")
+            return
         if isinstance(error, app_commands.CheckFailure):
-            await deny(interaction, "🔒 That command is admin-only.")
+            await deny(
+                interaction,
+                "🔒 **That command is admin-only.**\n"
+                "It needs Discord's **Administrator** permission, or a role named "
+                + ", ".join(f"`{n.title()}`" for n in sorted(ADMIN_ROLE_NAMES))
+                + ". A role called something else does not count, however many "
+                "other permissions it has.",
+            )
             return
         # Never leave the user staring at "the application did not respond",
         # and never leak an internal traceback into the channel.

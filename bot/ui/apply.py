@@ -15,7 +15,11 @@ import discord
 from ..data.specs import CLASSES, SPECS_BY_KEY, get_spec, specs_for_class
 from ..emojis import registry
 from ..store import Status
-from .common import normalise_logs_url, refresh_raid_message, store_of
+from ..config import region_label
+from .common import (
+    audit, derive_logs_url, handle_of, normalise_logs_url, refresh_raid_message,
+    split_character, store_of,
+)
 from .embeds import build_profile_embed
 
 OnPick = Callable[[discord.Interaction, str], Awaitable[None]]
@@ -113,11 +117,12 @@ class ProfileModal(discord.ui.Modal):
         logs_url: str = "",
         spec_key: str | None = None,
         status: Status = Status.PENDING,
+        note: str = "",
     ) -> None:
         super().__init__(title="Raid Application")
         self.raid_id = raid_id
         self.spec_key = spec_key
-        # Carried through the whole flow so that "Bench me" from a player the
+        # Carried through the whole flow so that "Backup" from a player the
         # bot has never seen still lands them on the bench, rather than
         # applying them and making them change it straight afterwards.
         self.status = status
@@ -140,6 +145,7 @@ class ProfileModal(discord.ui.Modal):
             label="Note for the raid lead (optional)",
             style=discord.TextStyle.paragraph,
             placeholder="Can only make it after 20:30",
+            default=note or None,
             max_length=200,
             required=False,
         )
@@ -147,13 +153,31 @@ class ProfileModal(discord.ui.Modal):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        logs_url, error = normalise_logs_url(str(self.logs))
-        if error:
-            await interaction.response.send_message(error, ephemeral=True)
-            return
-
         name = str(self.character).strip()
+        logs_raw = str(self.logs)
         note = str(self.note).strip() or None
+
+        logs_url, logs_error = normalise_logs_url(logs_raw)
+        problems: list[str] = []
+        if split_character(name) is None:
+            problems.append(
+                "• Enter your character as **Name-Server** — e.g. `Mimz-Kazzak`. "
+                "The server is what links your Warcraft Logs."
+            )
+        if logs_error:
+            problems.append("• " + logs_error)
+        if problems:
+            # Discord closes a modal on submit and cannot open another from a
+            # modal, so we hand back a button that reopens this one pre-filled
+            # with everything they typed - they fix the one field, not start over.
+            await interaction.response.send_message(
+                "That didn't go through:\n\n" + "\n".join(problems),
+                view=_FixApplicationView(
+                    self.raid_id, name, logs_raw, str(self.note), self.spec_key, self.status
+                ),
+                ephemeral=True,
+            )
+            return
 
         async def finish(spec_interaction: discord.Interaction, spec_key: str) -> None:
             await submit_application(
@@ -173,6 +197,34 @@ class ProfileModal(discord.ui.Modal):
         )
 
 
+class _FixApplicationView(discord.ui.View):
+    """Shown when an application fails validation: one button to reopen the
+    modal pre-filled, so the player edits the bad field instead of retyping."""
+
+    def __init__(self, raid_id, character, logs, note, spec_key, status) -> None:
+        super().__init__(timeout=300)
+        self.raid_id = raid_id
+        self.character = character
+        self.logs = logs
+        self.note = note
+        self.spec_key = spec_key
+        self.status = status
+
+    @discord.ui.button(label="Fix and resubmit", emoji="✏️", style=discord.ButtonStyle.primary)
+    async def fix(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(
+            ProfileModal(
+                self.raid_id,
+                character_name=self.character,
+                logs_url=self.logs,
+                spec_key=self.spec_key,
+                status=self.status,
+                note=self.note,
+            )
+        )
+        self.stop()
+
+
 async def submit_application(
     interaction: discord.Interaction,
     *,
@@ -190,11 +242,22 @@ async def submit_application(
         return
 
     raid = store.get_raid(raid_id)
+    # Read before the upsert overwrites it, so the log can say whether this was
+    # a first signup or someone changing their mind.
+    existing = store.get_signup(raid_id, interaction.user.id)
     # Auto-accept only ever promotes Pending. Someone who deliberately signed up
     # as Bench, Absent or Tentative has said something specific about their
     # availability, and accepting them over that would be wrong.
     if raid is not None and raid.auto_accept and status is Status.PENDING:
         status = Status.ACCEPTED
+
+    # No link given, but a "Name-Realm" character and a known raid region are
+    # enough to point one at Warcraft Logs. The stored profile keeps whatever
+    # the player actually typed (usually nothing), so the next raid re-derives
+    # against *its* region rather than baking this raid's in.
+    provided = logs_url
+    if not provided and raid is not None:
+        logs_url = derive_logs_url(character_name, region_label(raid.timezone))
 
     store.upsert_signup(
         raid_id=raid_id,
@@ -205,9 +268,23 @@ async def submit_application(
         status=status,
         note=note,
         updated_by=interaction.user.id,
+        discord_name=handle_of(interaction.user),
     )
     # Remembered for next time - this is what makes re-applying one click.
-    store.save_player(interaction.user.id, character_name, logs_url, spec_key)
+    store.save_player(interaction.user.id, character_name, provided, spec_key)
+
+    spec = get_spec(spec_key)
+    audit(
+        interaction,
+        raid_id,
+        "apply",
+        target_id=interaction.user.id,
+        target_name=handle_of(interaction.user),
+        detail=(
+            f"{character_name} — {spec.full_name if spec else spec_key} — {status.label}"
+            + ("" if existing is None else f" (was {existing.status.label})")
+        ),
+    )
 
     await interaction.response.edit_message(
         content=f"{status.emoji} You're **{status.label}** for this raid.",
@@ -220,7 +297,7 @@ async def submit_application(
 #: Offered alongside Apply wherever someone signs themselves up.
 SELF_SERVICE: tuple[tuple[Status, str, str], ...] = (
     (Status.TENTATIVE, "Tentative / late", "❔"),
-    (Status.BENCH, "Bench me", "🪑"),
+    (Status.BENCH, "Backup", "⭐"),
     (Status.ABSENT, "Absent", "🚫"),
 )
 
@@ -312,12 +389,20 @@ async def start_application(
     """Entry point from Apply, and from Bench/Absent/Tentative for new players.
 
     `status` is where an unknown player lands once they've given their details -
-    pressing "Bench me" as a first-timer should bench them, not apply them.
+    pressing "Backup" as a first-timer should set them backup, not apply them.
     """
     store = store_of(interaction)
     player = store.get_player(interaction.user.id)
-    if player is None:
-        await interaction.response.send_modal(ProfileModal(raid_id, status=status))
+    # A brand-new player, or one whose saved character predates the Name-Server
+    # rule, gets the modal (pre-filled) so they supply the realm rather than
+    # quietly re-applying with a flat name.
+    if player is None or split_character(player.character_name) is None:
+        await interaction.response.send_modal(ProfileModal(
+            raid_id, status=status,
+            character_name=player.character_name if player else "",
+            logs_url=(player.logs_url or "") if player else "",
+            spec_key=player.spec_key if player else None,
+        ))
         return
 
     spec = get_spec(player.spec_key)
@@ -345,7 +430,7 @@ async def start_application(
     )
     embed.set_footer(
         text="Nothing changes until you press a button below. "
-        "Not sure you'll make it? Sign up as Tentative, Bench or Absent instead."
+        "Not sure you'll make it? Sign up as Tentative, Backup or Absent instead."
     )
     await interaction.response.send_message(
         embed=embed, view=CachedProfileView(raid_id, player), ephemeral=True

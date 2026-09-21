@@ -7,7 +7,7 @@ import time
 
 import discord
 
-from ..config import region_label
+from ..config import mention_on_accept, region_label
 from ..data import buffs as buffs_data
 from ..data import targets as targets_data
 from ..data.specs import ROLE_ORDER, get_spec
@@ -71,22 +71,97 @@ def _spec_of(signup: Signup):
 
 
 def _sorted(signups: list[Signup]) -> list[Signup]:
-    """Stable, alphabetical order.
+    """Group by class (alphabetical), then character name.
 
-    The store returns rows by updated_at, which would make the roster visibly
-    reshuffle every time anyone's status changed.
+    All the druids together, then evokers, and so on - the same order the web
+    pages use, so a name sits in the same place wherever you look. Sorting by
+    class rather than spec keeps a class's specs adjacent instead of scattering
+    Balance and Resto druids apart. The store returns rows by updated_at, which
+    would otherwise reshuffle the roster every time a status changed.
     """
-    return sorted(signups, key=lambda s: s.character_name.casefold())
+    def key(s: Signup) -> tuple[str, str]:
+        spec = _spec_of(s)
+        return ((spec.wow_class if spec else s.spec_key).casefold(),
+                s.character_name.casefold())
+    return sorted(signups, key=key)
 
 
-def _roster_line(signup: Signup, *, show_status: bool = False) -> str:
-    spec = _spec_of(signup)
-    icon = registry.spec(signup.spec_key) or "•"
+def _roster_line(
+    signup: Signup,
+    *,
+    show_status: bool = False,
+    link: bool = True,
+    emoji: bool = True,
+    spec: str = "full",
+    mention: bool = False,
+) -> str:
+    """One roster line. emoji/link/spec can each shrink to fit the field.
+
+    `spec` is "full" ("Elemental Shaman"), "short" ("Elemental"), or "none".
+    "short" is the key trick for keeping everything: the spec *emoji* already
+    names the class, so the class word is redundant and dropping it buys the
+    room to keep the emoji, the link and the spec all at once.
+    """
+    s = _spec_of(signup)
     name = discord.utils.escape_markdown(signup.character_name)
-    name = f"[**{name}**]({signup.logs_url})" if signup.logs_url else f"**{name}**"
-    spec_text = spec.full_name if spec else signup.spec_key
+    if link and signup.logs_url:
+        name = f"[**{name}**]({signup.logs_url})"
+    else:
+        name = f"**{name}**"
+    icon = (registry.spec(signup.spec_key) or "•") if emoji else "•"
+    parts = [icon, name]
+    if spec == "full":
+        parts.append(f"— {s.full_name if s else signup.spec_key}")
+    elif spec == "short":
+        parts.append(f"— {s.name if s else signup.spec_key}")
+    if mention:
+        # Renders as @handle in the embed and never pings (embed mentions don't
+        # notify) - it just labels who the character is on Discord.
+        parts.append(f"<@{signup.user_id}>")
     prefix = f"{signup.status.emoji} " if show_status else ""
-    return f"{prefix}{icon} {name} — {spec_text}"
+    return prefix + " ".join(parts)
+
+
+#: Richest-first line formats for the accepted comp, as (emoji, link, spec_text).
+#: One format is chosen for the whole board so every role reads the same - one
+#: role showing "Name — Spec" while another shows only "Name" is the exact
+#: inconsistency this avoids. The order keeps the two things a raid lead reads,
+#: the logs link and the spec text, and drops the decorative spec emoji first
+#: when a role is too full to fit all three.
+def _role_fields(header: str, lines: list[str]) -> list[tuple[str, str]]:
+    """(field name, field value) pairs for one accepted role.
+
+    A role's lines always use the full format - spec emoji, logs link and the
+    full "Spec Class" - and never shrink. When they overrun one 1024-char field,
+    they spill into further fields whose header is a zero-width space, so a big
+    role reads as one continuous block under its single heading rather than a
+    "(cont.)" label or a hidden "+N more". A 2/2/23 raid just flows across as
+    many invisible blocks as the ranged list needs.
+    """
+    if not lines:
+        return [(header, _section("*—*"))]
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    used = 0
+    for line in lines:
+        if current and used + len(line) + 1 > CONTENT_LIMIT:
+            chunks.append(current)
+            current, used = [], 0
+        current.append(line)
+        used += len(line) + 1
+    if current:
+        chunks.append(current)
+    # Only the first block gets the blank-under-header, only the last gets the
+    # two-blank tail; the blocks between carry no padding, so a role split over
+    # several fields reads tight instead of with a gaping hole between each.
+    last = len(chunks) - 1
+    fields: list[tuple[str, str]] = []
+    for i, chunk in enumerate(chunks):
+        body = "\n".join(chunk)
+        head = SECTION_HEAD if i == 0 else ""
+        tail = SECTION_TAIL if i == last else ""
+        fields.append((header if i == 0 else BLANK, f"{head}{body}{tail}"))
+    return fields
 
 
 def _fit(lines: list[str], empty: str = "*—*") -> str:
@@ -252,7 +327,7 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         color=color,
     )
 
-    # --- comp, one field per role ---
+    # --- comp: one heading per role, overflow flowing into invisible blocks ---
     for role in ROLE_ORDER:
         members = _sorted([s for s in accepted if (sp := _spec_of(s)) and sp.role is role])
         # None means this role has no target of its own (combined DPS), so show
@@ -260,11 +335,10 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
         cap = targets_data.role_cap(raid.caps, role)
         tally = f"{len(members)}/{cap}" if cap is not None else str(len(members))
         icon = registry.role(role.value)
-        embed.add_field(
-            name=f"{icon} {role.label} ({tally})",
-            value=_section(_fit([_roster_line(m) for m in members])),
-            inline=False,
-        )
+        header = f"{icon} {role.label} ({tally})"
+        lines = [_roster_line(m, mention=mention_on_accept(m.user_id)) for m in members]
+        for name, value in _role_fields(header, lines):
+            embed.add_field(name=name, value=value, inline=False)
 
     # --- buff coverage ---
     # Dropped once the raid is cancelled or over: "you are missing Battle Shout"
@@ -285,9 +359,9 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
 
     side: list[tuple[str, list[Signup]]] = [
         ("❔ Tentative", by_status[Status.TENTATIVE]),
-        ("🪑 Bench", by_status[Status.BENCH]),
+        ("⭐ Backup", by_status[Status.BENCH]),
         ("🚫 Absent", by_status[Status.ABSENT]),
-        ("❌ Declined", by_status[Status.DECLINED]),
+        ("❌ Out", by_status[Status.DECLINED]),
     ]
     for label, members in side:
         if members:
@@ -311,7 +385,7 @@ def _within_total_limit(embed: discord.Embed) -> discord.Embed:
     which would freeze the board rather than merely truncate it. The comp and
     buff panel are the point of the board, so the side queues go first.
     """
-    droppable = ("❌ Declined", "🚫 Absent", "🪑 Bench", "❔ Tentative", "🕓 Pending")
+    droppable = ("❌ Out", "🚫 Absent", "⭐ Backup", "❔ Tentative", "🕓 Pending")
     for name_prefix in droppable:
         if len(embed) <= TOTAL_LIMIT:
             break

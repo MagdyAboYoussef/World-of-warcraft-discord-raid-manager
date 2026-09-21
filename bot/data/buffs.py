@@ -19,7 +19,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .specs import Spec
+from .specs import CLASSES, Spec, specs_for_class
 
 Predicate = Callable[[Spec], bool]
 
@@ -170,6 +170,64 @@ def evaluate(specs: Iterable[Spec]) -> list[BuffStatus]:
 
 def missing(statuses: Iterable[BuffStatus]) -> list[BuffStatus]:
     return [s for s in statuses if not s.covered]
+
+
+@dataclass(frozen=True, slots=True)
+class Gap:
+    """One missing buff that a particular class could close."""
+
+    buff: BuffDef
+    #: The specs of that class which actually provide it.
+    specs: tuple[Spec, ...]
+    #: True when only some of the class's specs bring it, so "a Hunter" is not
+    #: enough - it has to be a Beast Mastery one. Getting this wrong is how a
+    #: raid ends up inviting a Marksmanship hunter for Lust.
+    spec_locked: bool
+
+    @property
+    def spec_names(self) -> tuple[str, ...]:
+        return tuple(s.name for s in self.specs)
+
+
+@dataclass(frozen=True, slots=True)
+class Recruit:
+    """A class worth bringing, and everything it would fix."""
+
+    wow_class: str
+    gaps: tuple[Gap, ...]
+
+    @property
+    def count(self) -> int:
+        return len(self.gaps)
+
+
+def recruits(statuses: Iterable[BuffStatus]) -> list[Recruit]:
+    """Which classes would close the remaining buff gaps, best first.
+
+    Answers the question the missing-buff list implies but does not state: not
+    "what are we short of" but "who do we invite". A class is only listed if one
+    of its specs genuinely provides a missing buff, so nothing here is a guess -
+    it runs the same predicates the coverage panel does, backwards.
+
+    Ordered by how many gaps a single body closes, because one Evoker covering
+    three holes is a better invite than three classes covering one each.
+    """
+    outstanding = missing(statuses)
+    by_class: dict[str, list[Gap]] = {}
+    for status in outstanding:
+        for wow_class in CLASSES:
+            class_specs = specs_for_class(wow_class)
+            providers = tuple(s for s in class_specs if status.definition.provided_by(s))
+            if not providers:
+                continue
+            by_class.setdefault(wow_class, []).append(
+                Gap(status.definition, providers, len(providers) != len(class_specs))
+            )
+
+    out = [Recruit(wow_class, tuple(gaps)) for wow_class, gaps in by_class.items()]
+    # Ties broken by name so the panel does not reshuffle between polls.
+    out.sort(key=lambda r: (-r.count, r.wow_class))
+    return out
 
 
 def covered(statuses: Iterable[BuffStatus]) -> list[BuffStatus]:

@@ -116,6 +116,63 @@ check("warrior icon shown for Battle Shout", "<:class_warrior:1> Battle Shout" i
 check("DK icon shown for Grip", "<:class_death_knight:1> Grip" in missing_text)
 registry._by_name = {}
 
+print("\n[3c] who to recruit for the buffs still missing")
+_recruits = B.recruits
+
+# A lone protection paladin: almost everything is still missing.
+_thin = B.evaluate(specs("pal_prot"))
+_thin_by_class = {r.wow_class: r for r in _recruits(_thin)}
+check("a class that fixes nothing is not listed", "Paladin" not in _thin_by_class,
+      "the paladin already covers both buffs a paladin brings")
+_order = _recruits(_thin)
+check("ordered by how many gaps one invite closes",
+      [r.count for r in _order] == sorted((r.count for r in _order), reverse=True))
+_top = [r.wow_class for r in _order if r.count == _order[0].count]
+check("ties are alphabetical, so the panel does not reshuffle between polls",
+      _top == sorted(_top), str(_top))
+check("evoker closes three on its own",
+      {g.buff.key for g in _thin_by_class["Evoker"].gaps}
+      == {"bronze", "lust", "source_of_magic"})
+
+# Druid ties it, but only because Feral carries Attack Speed Slow - exactly the
+# case where "bring a Druid" is not specific enough.
+_slow = next(g for g in _thin_by_class["Druid"].gaps if g.buff.key == "as_slow")
+check("a druid only covers AS Slow as Feral", _slow.spec_locked
+      and _slow.spec_names == ("Feral",), str(_slow.spec_names))
+
+_lust = next(g for g in _thin_by_class["Hunter"].gaps if g.buff.key == "lust")
+check("a spec-locked gap is flagged", _lust.spec_locked)
+check("and it names the spec that actually brings it",
+      _lust.spec_names == ("Beast Mastery",), str(_lust.spec_names))
+_mark = next(g for g in _thin_by_class["Hunter"].gaps if g.buff.key == "hunters_mark")
+check("a gap any spec of the class covers is not spec-locked", not _mark.spec_locked)
+
+check("an upgradeable buff still recruits on its base class",
+      "Death Knight" in _thin_by_class
+      and any(g.buff.key == "grip" for g in _thin_by_class["Death Knight"].gaps))
+
+# Every class listed must genuinely provide every gap attributed to it.
+_bad = [
+    (r.wow_class, g.buff.key)
+    for r in _recruits(_thin)
+    for g in r.gaps
+    if not any(sp.wow_class == r.wow_class and g.buff.provided_by(sp) for sp in g.specs)
+]
+check("every suggestion is backed by a real provider", not _bad, str(_bad))
+
+# Nothing missing -> nothing to recruit. One of each class, plus the specs the
+# spec-locked entries need.
+_full = specs(
+    "warr_arms", "mage_fire", "priest_holy", "druid_resto", "sham_resto",
+    "evoker_pres", "pal_prot", "dh_havoc", "monk_ww", "hunter_bm", "rogue_sub",
+    "dk_blood", "lock_affli",
+)
+_covered = B.evaluate(_full)
+check("a complete roster asks for nobody", _recruits(_covered) == [],
+      str([r.wow_class for r in _recruits(_covered)]))
+check("...and that roster really has no gaps", not B.missing(_covered),
+      str([m.definition.key for m in B.missing(_covered)]))
+
 print("\n[4] the screenshot case: holy priest fills the priest buff")
 before = B.evaluate(specs("warr_prot"))
 after = B.evaluate(specs("warr_prot", "priest_holy"))
@@ -471,9 +528,27 @@ with tempfile.TemporaryDirectory() as tmp:
     check("overflowing field still within the limit",
           all(len(f.value) <= FIELD_LIMIT for f in packed_embed.fields),
           str(max(len(f.value) for f in packed_embed.fields)))
-    check("overflowing field keeps its spacing",
-          all(f.value.startswith(SECTION_HEAD) and f.value.endswith(SECTION_TAIL)
-              for f in packed_embed.fields))
+    # The 40 tanks overflow one field and flow into invisible continuation
+    # blocks. The role reads as one block: the first field carries the header
+    # padding, the last carries the trailing gap, and the pieces between are
+    # tight (no padding), so there is no gaping hole mid-roster.
+    tank_fields = []
+    for f in packed_embed.fields:
+        if f.name.endswith("Tanks (40/40)"):
+            tank_fields = [f]
+        elif tank_fields and f.name == BLANK:
+            tank_fields.append(f)
+        elif tank_fields:
+            break
+    check("the packed role spans more than one field", len(tank_fields) > 1,
+          f"{len(tank_fields)}")
+    check("its first block carries the header spacing",
+          tank_fields[0].value.startswith(SECTION_HEAD))
+    check("its last block carries the trailing spacing",
+          tank_fields[-1].value.endswith(SECTION_TAIL))
+    check("the blocks between are tight (no padding gap)",
+          all(not f.value.startswith(SECTION_HEAD) and not f.value.endswith(SECTION_TAIL)
+              for f in tank_fields[1:-1]) if len(tank_fields) > 2 else True)
     packed.close()
     store.close()
 
@@ -634,6 +709,242 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a raid that was never posted is excluded",
           ghost.id not in [r.id for r in store.boards_awaiting_close(1)])
     store.close()
+
+print("\n[7h] audit log + discord identity")
+with tempfile.TemporaryDirectory() as tmp:
+    import sqlite3 as _sqlite3
+
+    from bot.store import AUDIT_ACTIONS, AUDIT_RETAINED
+
+    path = Path(tmp) / "audited.sqlite3"
+    store = Store(path)
+    raid = store.create_raid(
+        guild_id=1, channel_id=1, title="Audited", description=None,
+        leader_id=10, starts_at=None,
+    )
+    store.upsert_signup(
+        raid_id=raid.id, user_id=77, character_name="Trollman", logs_url=None,
+        spec_key="mage_fire", status=Status.PENDING, discord_name="trollman",
+    )
+    check("handle stored with the signup",
+          store.get_signup(raid.id, 77).discord_name == "trollman")
+    # An admin flipping a status has no reason to know the handle, and must not
+    # blank the one the application recorded.
+    store.upsert_signup(
+        raid_id=raid.id, user_id=77, character_name="Trollman", logs_url=None,
+        spec_key="mage_fire", status=Status.ACCEPTED,
+    )
+    check("a later write without a handle keeps the old one",
+          store.get_signup(raid.id, 77).discord_name == "trollman")
+    store.set_discord_name(raid.id, 77, "trollman_renamed")
+    check("handle can be backfilled",
+          store.get_signup(raid.id, 77).discord_name == "trollman_renamed")
+
+    store.record_audit(
+        raid_id=raid.id, action="status", source="discord", actor_id=10,
+        actor_name="raidlead", target_id=77, target_name="trollman",
+        detail="Trollman — Pending -> Accepted",
+    )
+    entry = store.audit_entries(raid.id)[0]
+    check("entry names the actor", entry.actor_id == 10 and entry.actor_name == "raidlead")
+    check("entry names the target", entry.target_id == 77)
+    check("entry records where it happened", entry.source == "discord")
+    check("action is in the known vocabulary", entry.action in AUDIT_ACTIONS)
+
+    other = store.create_raid(
+        guild_id=1, channel_id=1, title="Other", description=None,
+        leader_id=10, starts_at=None,
+    )
+    store.record_audit(raid_id=other.id, action="raid", source="discord",
+                       actor_id=10, actor_name="raidlead", detail="raid cancelled")
+    check("logs do not bleed between raids", len(store.audit_entries(raid.id)) == 1)
+    check("the retention trim is per raid, not global",
+          len(store.audit_entries(other.id)) == 1)
+
+    for n in range(AUDIT_RETAINED + 5):
+        store.record_audit(raid_id=raid.id, action="apply", source="discord",
+                           actor_id=77, actor_name="trollman", detail=f"spam {n}")
+    kept = store.db.execute(
+        "SELECT COUNT(*) c FROM audit_log WHERE raid_id=?", (raid.id,)
+    ).fetchone()["c"]
+    check("one player spamming cannot grow the log without bound",
+          kept == AUDIT_RETAINED, f"{kept} rows")
+    check("the other raid's log is untouched by that trim",
+          len(store.audit_entries(other.id)) == 1)
+    store.close()
+
+    # Both are new since the live database was created, so both have to arrive
+    # by migration rather than by CREATE TABLE on a fresh file.
+    legacy = Path(tmp) / "pre-audit.sqlite3"
+    old = _sqlite3.connect(legacy)
+    old.executescript("""
+        CREATE TABLE signups (
+            raid_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+            character_name TEXT NOT NULL, logs_url TEXT, spec_key TEXT NOT NULL,
+            status TEXT NOT NULL, note TEXT, updated_at INTEGER NOT NULL,
+            updated_by INTEGER, PRIMARY KEY (raid_id, user_id));
+        INSERT INTO signups (raid_id, user_id, character_name, spec_key, status, updated_at)
+        VALUES (1, 55, 'Older', 'pal_prot', 'accepted', 0);
+    """)
+    old.commit()
+    old.close()
+
+    store = Store(legacy)        # must not raise
+    kept_signup = store.get_signup(1, 55)
+    check("signups written before the column still load",
+          kept_signup is not None and kept_signup.character_name == "Older")
+    check("their handle is simply unknown", kept_signup.discord_name is None)
+    check("the audit table is created on an existing database",
+          store.audit_entries(1) == [])
+    Store(legacy)                # second open must be a no-op
+    check("both migrations are idempotent", True)
+    store.close()
+
+print("\n[7m] roster sorts by class alphabetically, then name")
+from bot.ui.embeds import _sorted as _srt
+from bot.store import Signup as _Sig
+def _sig(char, spec):
+    return _Sig(raid_id=1, user_id=hash(char) & 0xffff, character_name=char, logs_url=None,
+                spec_key=spec, status=Status.ACCEPTED, note=None, updated_at=0,
+                updated_by=None, discord_name=None)
+# mix classes/specs; expect grouped by class name alphabetical, then char name
+rows = [_sig("Zed", "warr_arms"), _sig("Amy", "druid_balance"),
+        _sig("Bob", "druid_resto"), _sig("Cara", "evoker_dev"),
+        _sig("Dan", "dk_blood")]
+order = [(_srt(rows)[i].character_name) for i in range(len(rows))]
+# classes: Death Knight(Dan), Druid(Amy,Bob), Evoker(Cara), Warrior(Zed)
+check("class-alphabetical, name within class", order == ["Dan", "Amy", "Bob", "Cara", "Zed"],
+      str(order))
+check("two specs of one class stay adjacent",
+      abs(order.index("Amy") - order.index("Bob")) == 1)
+
+print("\n[7l] @mention on the accepted roster (label, never a ping)")
+from bot.ui.embeds import _roster_line as _rl
+from bot.store import Signup as _Signup
+_mk = lambda uid, st=Status.ACCEPTED: _Signup(
+    raid_id=1, user_id=uid, character_name="Miimzz-kazzak", logs_url=None,
+    spec_key="druid_resto", status=st, note=None, updated_at=0, updated_by=None,
+    discord_name="mimz")
+check("a line without mention has no <@ tag", "<@" not in _rl(_mk(1), mention=False))
+check("mention appends <@user_id> to the line", "<@42>" in _rl(_mk(42), mention=True))
+check("the mention is a bare user tag Discord renders as @handle in an embed",
+      _rl(_mk(42), mention=True).rstrip().endswith("<@42>"))
+# The config gate: only listed ids (or "all") are mentioned.
+import os as _os, importlib as _il, bot.config as _cfg
+_prev = _os.environ.get("MENTION_ON_ACCEPT")
+try:
+    _os.environ["MENTION_ON_ACCEPT"] = "42, 99"
+    _il.reload(_cfg)
+    check("a listed id is mentioned", _cfg.mention_on_accept(42) and _cfg.mention_on_accept(99))
+    check("an unlisted id is not", not _cfg.mention_on_accept(7))
+    _os.environ["MENTION_ON_ACCEPT"] = "all"
+    _il.reload(_cfg)
+    check("'all' mentions everyone", _cfg.mention_on_accept(123456))
+    _os.environ["MENTION_ON_ACCEPT"] = ""
+    _il.reload(_cfg)
+    check("blank turns it off", not _cfg.mention_on_accept(42))
+finally:
+    if _prev is None: _os.environ.pop("MENTION_ON_ACCEPT", None)
+    else: _os.environ["MENTION_ON_ACCEPT"] = _prev
+    _il.reload(_cfg)
+
+print("\n[7k] accepted comp keeps full format, overflowing into invisible blocks")
+import bot.emojis as _emojis
+from bot.ui.embeds import BLANK as _BLANK
+_orig_spec = _emojis.registry.spec
+_emojis.registry.spec = lambda key: "<:spec_placeholder:1528176451957030954>"  # ~40ch
+try:
+    with tempfile.TemporaryDirectory() as _tmp:
+        _st = Store(Path(_tmp) / "comp.sqlite3")
+        _raid = _st.create_raid(guild_id=1, channel_id=1, title="Big", description=None,
+                                leader_id=1, starts_at=None, timezone="EU",
+                                caps={"tank": 2, "healer": 2, "dps": 23})
+        def _add(spec, n, start):
+            for _i in range(n):
+                u = start + _i; nm = f"Char{u}"
+                _st.upsert_signup(raid_id=_raid.id, user_id=u, character_name=f"{nm}-Kazzak",
+                    logs_url=None, spec_key=spec, status=Status.ACCEPTED, discord_name=f"u{u}")
+                _st.set_logs_url(_raid.id, u,
+                    f"https://www.warcraftlogs.com/character/eu/kazzak/{nm.lower()}")
+        _add("pal_prot", 2, 1); _add("priest_holy", 2, 50); _add("mage_frost", 23, 100)
+        _e = build_raid_embed(_st.get_raid(_raid.id), _st.signups(_raid.id))
+
+        # collect the ranged header field and its following invisible blocks
+        _blocks, _seen_header = [], False
+        for f in _e.fields:
+            if "Ranged" in f.name:
+                _blocks = [f]; _seen_header = True
+            elif _seen_header and f.name == _BLANK:
+                _blocks.append(f)
+            elif _seen_header:
+                break
+        _shown = sum(b.value.count("Char") for b in _blocks)
+        check("all 23 ranged shown across the blocks", _shown == 23, f"{_shown}/23")
+        check("more than one block was needed", len(_blocks) > 1, f"{len(_blocks)} blocks")
+        check("only the first block carries the role heading",
+              "Ranged" in _blocks[0].name and all(b.name == _BLANK for b in _blocks[1:]))
+        check("every block keeps the spec emoji + link + full class",
+              all("spec_placeholder" in b.value and "warcraftlogs" in b.value
+                  and "—" in b.value for b in _blocks))
+        check("no '(cont.)' label, no '+N more'",
+              not any("(cont.)" in f.name for f in _e.fields)
+              and not any("more" in b.value for b in _blocks))
+        check("every field within Discord's 1024", all(len(f.value) <= 1024 for f in _e.fields))
+        check("whole embed within 6000", len(_e) <= 6000, str(len(_e)))
+        check("field count within Discord's 25", len(_e.fields) <= 25, str(len(_e.fields)))
+        _st.close()
+finally:
+    _emojis.registry.spec = _orig_spec
+
+print("\n[7j] derived Warcraft Logs links")
+from bot.ui.common import WCL_RE, derive_logs_url  # noqa: E402
+
+check("the documented case: mimz-kazzak + EU",
+      derive_logs_url("mimz-kazzak", "EU")
+      == "https://www.warcraftlogs.com/character/eu/kazzak/mimz")
+check("a realm with a space is slugged",
+      derive_logs_url("Acidtab-Tarren Mill", "EU")
+      == "https://www.warcraftlogs.com/character/eu/tarren-mill/acidtab")
+check("NA folds to the WCL 'us' region",
+      derive_logs_url("Fabregaas-Turalyon", "NA")
+      == "https://www.warcraftlogs.com/character/us/turalyon/fabregaas")
+check("Oceanic also folds to us", derive_logs_url("x-Frostmourne", "OCE").split("/")[4] == "us")
+check("no realm half -> no guess", derive_logs_url("Mimz", "EU") is None)
+check("an IANA zone WCL cannot name -> no guess",
+      derive_logs_url("mimz-kazzak", "Europe/Paris") is None)
+check("empty / missing inputs -> None",
+      derive_logs_url("", "EU") is None and derive_logs_url("a-b", None) is None)
+check("every derived link passes the same gate a typed one faces",
+      all(WCL_RE.match(derive_logs_url(c, "EU")) for c in
+          ("mimz-kazzak", "Acidtab-Tarren Mill", "Ka'el-Argent Dawn")))
+check("only the first hyphen splits name from realm",
+      derive_logs_url("Name-Two-Word", "EU")
+      == "https://www.warcraftlogs.com/character/eu/two-word/name")
+
+print("\n[7i] gateway watchdog decision")
+from bot.client import gateway_is_stale  # noqa: E402
+
+# Live connection: never stale, no matter how long ago it last dropped.
+check("a connected gateway is never stale",
+      not gateway_is_stale(True, None, 10_000.0, 120))
+check("connected wins even with a stale down_since",
+      not gateway_is_stale(True, 0.0, 10_000.0, 120))
+# Disconnected: stale only once the threshold is crossed.
+check("just-dropped is not yet stale",
+      not gateway_is_stale(False, 1_000.0, 1_030.0, 120))
+check("crossing the threshold reads as stale",
+      gateway_is_stale(False, 1_000.0, 1_120.0, 120))
+check("well past the threshold is stale",
+      gateway_is_stale(False, 1_000.0, 1_500.0, 120))
+# A bot that has never connected has down_since set at construction, so a boot
+# that never reaches the gateway is recycled too.
+check("a never-connected boot goes stale after the window",
+      gateway_is_stale(False, 0.0, 121.0, 120))
+# The escape hatch and the pre-connect state must never trip it.
+check("threshold 0 disables the watchdog",
+      not gateway_is_stale(False, 0.0, 10_000.0, 0))
+check("no recorded downtime is never stale",
+      not gateway_is_stale(False, None, 10_000.0, 120))
 
 print("\n[8] hardening: hostile input and Discord's hard limits")
 from bot.ui.common import SAFE_MENTIONS, normalise_logs_url  # noqa: E402

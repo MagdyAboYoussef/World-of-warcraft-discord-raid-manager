@@ -18,10 +18,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bot.data import targets as targets_data  # noqa: E402
 from bot.data.buffs import BUFFS  # noqa: E402
+from bot.data.specs import CLASSES, specs_for_class  # noqa: E402
 from bot.data.specs import (  # noqa: E402
     CLASS_COLORS, CLASS_ICONS, ROLE_ORDER, SPECS, get_spec,
 )
-from bot.web.page import SCRIPT, STYLE  # noqa: E402
+from bot.web.page import BODY, SCRIPT, STYLE  # noqa: E402
 
 # character, spec, status, note, has_logs
 ROSTER = [
@@ -68,6 +69,9 @@ def build_state() -> dict:
             "wow_class": spec.wow_class,
             "color": f"#{CLASS_COLORS[spec.wow_class]:06X}",
             "role": spec.role.value,
+            # One row deliberately left without a handle, to show the fallback
+            # for an account that no longer resolves.
+            "discord_name": None if name == "Palefang" else name.lower(),
             "status": status,
             "note": note,
             "logs_url": (
@@ -120,8 +124,8 @@ def build_state() -> dict:
         "statuses": [
             {"value": "pending", "label": "Pending", "emoji": "🕓"},
             {"value": "accepted", "label": "Accepted", "emoji": "✅"},
-            {"value": "declined", "label": "Declined", "emoji": "❌"},
-            {"value": "bench", "label": "Benched", "emoji": "🪑"},
+            {"value": "declined", "label": "Out", "emoji": "❌"},
+            {"value": "bench", "label": "Backup", "emoji": "⭐"},
             {"value": "absent", "label": "Absent", "emoji": "🚫"},
             {"value": "tentative", "label": "Tentative", "emoji": "❔"},
         ],
@@ -130,9 +134,37 @@ def build_state() -> dict:
              "wow_class": s.wow_class, "role": s.role.value}
             for s in SPECS
         ],
+        "audit": AUDIT,
         "viewer_id": "1",
         "expires_at": 0,
     }
+
+
+#: A plausible few minutes of raid-lead work, newest first.
+AUDIT = [
+    {"id": 9, "at": 1770000900, "actor": "mimz", "actor_id": "1",
+     "action": "remove", "target": "palefang", "target_id": str(BASE_ID + 12),
+     "detail": "Palefang — was Declined", "source": "web"},
+    {"id": 8, "at": 1770000840, "actor": "mimz", "actor_id": "1",
+     "action": "status", "target": "voidgaze", "target_id": str(BASE_ID + 19),
+     "detail": "Voidgaze — Pending -> Accepted", "source": "web"},
+    {"id": 7, "at": 1770000780, "actor": "officer_kez", "actor_id": "2",
+     "action": "spec", "target": "emberdrake", "target_id": str(BASE_ID + 20),
+     "detail": "Emberdrake — Devastation Evoker -> Augmentation Evoker",
+     "source": "discord"},
+    {"id": 6, "at": 1770000720, "actor": "officer_kez", "actor_id": "2",
+     "action": "status", "target": "blossomrot", "target_id": str(BASE_ID + 7),
+     "detail": "Blossomrot — Accepted -> Backup", "source": "discord"},
+    {"id": 5, "at": 1770000660, "actor": "duskwarden", "actor_id": str(BASE_ID + 22),
+     "action": "apply", "target": "duskwarden", "target_id": str(BASE_ID + 22),
+     "detail": "Duskwarden — Blood Death Knight — Tentative", "source": "discord"},
+    {"id": 4, "at": 1770000600, "actor": "mimz", "actor_id": "1",
+     "action": "raid", "target": None, "target_id": None,
+     "detail": "auto-accept turned off", "source": "discord"},
+    {"id": 3, "at": 1770000540, "actor": "thundercall", "actor_id": str(BASE_ID + 21),
+     "action": "withdraw", "target": "thundercall", "target_id": str(BASE_ID + 21),
+     "detail": "Thundercall", "source": "discord"},
+]
 
 
 def buff_table() -> list[dict]:
@@ -155,6 +187,36 @@ def buff_table() -> list[dict]:
             entry["up_specs"] = [s.key for s in SPECS if definition.upgrade.provided_by(s)]
         table.append(entry)
     return table
+
+
+def needs_table() -> dict:
+    """{buff key: [every class that could cover it]}, straight from the predicates.
+
+    The preview recomputes coverage as you click, so it needs to recompute the
+    recruit panel too - but the *rules* stay here in Python. The mock only
+    assembles this table against whichever buffs are currently missing, so it
+    cannot drift from what the server would have said.
+    """
+    out: dict[str, list[dict]] = {}
+    for definition in BUFFS:
+        entries = []
+        for wow_class in CLASSES:
+            class_specs = specs_for_class(wow_class)
+            providers = [s for s in class_specs if definition.provided_by(s)]
+            if not providers:
+                continue
+            entries.append({
+                "wow_class": wow_class,
+                "icon": CLASS_ICONS[wow_class],
+                "color": f"#{CLASS_COLORS[wow_class]:06X}",
+                "label": definition.label,
+                "specs": (
+                    [s.name for s in providers]
+                    if len(providers) != len(class_specs) else []
+                ),
+            })
+        out[definition.key] = entries
+    return out
 
 
 ICON_CDN = "https://wow.zamimg.com/images/wow/icons/large/{slug}.jpg"
@@ -200,6 +262,7 @@ def icon_map(slugs: set[str]) -> dict[str, str]:
 MOCK = """
 const STATE = __STATE__;
 const BUFFS = __BUFFS__;
+const NEEDS = __NEEDS__;
 window.ICON_MAP = __ICONS__;
 
 // Anchor the demo raid to this evening so the header reads like a real one.
@@ -234,6 +297,26 @@ function recompute() {
       label: buff.label, icon: buff.icon, count, covered: count > 0,
     });
   });
+  recomputeNeeds();
+}
+
+// Mirrors bot.data.buffs.recruits: group the classes that cover each missing
+// buff, best first, ties alphabetical.
+function recomputeNeeds() {
+  const byClass = {};
+  for (const buff of STATE.buffs) {
+    if (buff.covered) continue;
+    for (const entry of (NEEDS[buff.key] || [])) {
+      const row = byClass[entry.wow_class] || (byClass[entry.wow_class] = {
+        wow_class: entry.wow_class, icon: entry.icon, color: entry.color,
+        count: 0, covers: [],
+      });
+      row.covers.push({ label: entry.label, specs: entry.specs });
+      row.count = row.covers.length;
+    }
+  }
+  STATE.recruit = Object.values(byClass).sort(
+    (a, b) => (b.count - a.count) || a.wow_class.localeCompare(b.wow_class));
 }
 
 // The real client script is used verbatim; only the transport is faked.
@@ -288,47 +371,19 @@ def build() -> str:
     mock = (
         MOCK.replace("__STATE__", json.dumps(state))
         .replace("__BUFFS__", json.dumps(buffs))
+        .replace("__NEEDS__", json.dumps(needs_table()))
         .replace("__ICONS__", json.dumps(icon_map(slugs)))
     )
-    return f"""<title>Raid roster manager — preview</title>
-<style>{STYLE}</style>
-<div class="wrap">
-{BANNER}
-  <header class="top">
-    <div>
-      <h1 id="title">Manaforge Omega — Mythic</h1>
-      <div class="meta" id="meta"></div>
-    </div>
-    <div class="meta" id="counts"></div>
-  </header>
-
-  <div class="panel">
-    <h2>Final roster — <span class="n" id="roster-count"></span> accepted</h2>
-    <div class="roster" id="roster"></div>
-  </div>
-
-  <div class="panel">
-    <h2>Raid buffs — accepted roster</h2>
-    <div class="chips" id="buffs"></div>
-  </div>
-
-  <div class="toolbar">
-    <button id="f-all" class="on">All signups</button>
-    <button id="f-pending">Pending only</button>
-    <span class="grow"></span>
-    <span class="hint">
-      Focus a card, then <kbd>A</kbd>ccept <kbd>D</kbd>ecline <kbd>B</kbd>ench
-      <kbd>N</kbd> absent <kbd>P</kbd>ending <kbd>X</kbd> remove · <kbd>↑</kbd><kbd>↓</kbd> to move
-    </span>
-  </div>
-
-  <div class="hint" id="orphans"></div>
-  <div class="board" id="board"></div>
-</div>
-<div id="toast"></div>
-<script>{mock}</script>
-<script>{SCRIPT}</script>
-"""
+    # The real body, not a copy of it: everything the client script reaches for
+    # is guaranteed to be here because the deployed page uses the same template.
+    body = BODY.format(banner=BANNER, title="Manaforge Omega — Mythic")
+    return (
+        "<title>Raid roster manager — preview</title>\n"
+        f"<style>{STYLE}</style>\n"
+        f"{body}\n"
+        f"<script>{mock}</script>\n"
+        f"<script>{SCRIPT}</script>\n"
+    )
 
 
 if __name__ == "__main__":

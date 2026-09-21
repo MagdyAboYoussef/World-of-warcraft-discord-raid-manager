@@ -91,7 +91,7 @@ check("<=5 rows", len(_rows) <= 5, str(sorted(_rows)))
 check("no row exceeds 5 components", all(n <= 5 for n in _rows.values()), str(_rows))
 _labels = {getattr(i, "label", None) for i in _cached.children}
 check("offers a direct tentative sign-up", "Tentative / late" in _labels, str(_labels))
-check("offers a direct bench sign-up", "Bench me" in _labels)
+check("offers a direct backup sign-up", "Backup" in _labels)
 check("offers a direct absent sign-up", "Absent" in _labels)
 
 print("\n[5] admin views build")
@@ -122,7 +122,7 @@ check(
 )
 # A disabled action button is a silent no-op for the admin - the exact bug that
 # made an Accept click do nothing. They must stay clickable and explain instead.
-action_labels = {"Accepted", "Declined", "Benched", "Absent", "Pending", "Change spec", "Remove"}
+action_labels = {"Accepted", "Out", "Backup", "Absent", "Pending", "Change spec", "Remove"}
 stuck = [
     c.label for c in manager.children
     if getattr(c, "label", None) in action_labels and getattr(c, "disabled", False)

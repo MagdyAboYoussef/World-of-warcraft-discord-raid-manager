@@ -99,8 +99,35 @@ img.mini {
 .chip.covered { color: var(--accepted); border-color: #234b30; background: #10251a; }
 .chip.missing { color: var(--declined); border-color: #4d2222; background: #241414; }
 
+/* "Who do we still need?" - one row per class worth inviting. */
+.needs { display: flex; flex-direction: column; gap: 7px; }
+.need { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.need .cls {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-width: 148px; font-weight: 700; font-size: 13px;
+}
+.need .n {
+  font-size: 11px; font-weight: 700; color: var(--bg); background: var(--gold);
+  border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums;
+}
+.need .fixes { display: flex; flex-wrap: wrap; gap: 5px; }
+.need .fix {
+  font-size: 12px; padding: 2px 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+}
+/* A spec-locked gap is the one that gets raids wrong - "a Hunter" does not
+   bring Lust, only a Beast Mastery one does. Called out rather than hidden. */
+.need .fix em { font-style: normal; color: var(--pending); }
+.need.best .cls { font-size: 14px; }
+.need.best .fix { border-color: #3a4553; }
+
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
 .toolbar .grow { flex: 1; }
+.toolbar input.search {
+  font: inherit; padding: 6px 11px; border-radius: 7px; min-width: 200px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+}
+.toolbar input.search:focus { outline: none; border-color: var(--gold); }
 button {
   font: inherit; color: inherit; cursor: pointer;
   background: var(--panel-2); border: 1px solid var(--line);
@@ -137,16 +164,54 @@ kbd {
   padding: 9px 10px; margin-bottom: 8px; outline: none;
 }
 .card:focus-visible { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(217,178,95,.25); }
-.card[data-status="declined"], .card[data-status="absent"] { opacity: .5; }
+.card[data-status="declined"], .card[data-status="absent"] { opacity: .62; }
 .card[data-status="tentative"] { border-style: dashed; }
 .card .who { display: flex; gap: 9px; align-items: center; }
+/* Says the status in words. Without it the only cue that someone is Bench or
+   Tentative is a dashed border or a dimmed card, and every state that is not
+   Accepted ends up reading as Pending. */
+.card .badge {
+  margin-left: auto; align-self: flex-start; white-space: nowrap;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+}
+.card .badge[data-s="accepted"]  { color: var(--accepted); border-color: #234b30; background: #10251a; }
+.card .badge[data-s="pending"]   { color: var(--pending);  border-color: #5c451a; background: #241a0c; }
+.card .badge[data-s="tentative"] { color: #c8a2fc;         border-color: #4a3570; background: #1c1430; }
+.card .badge[data-s="bench"]     { color: #c9d1d9;         border-color: #3a4150; background: #20252e; }
+.card .badge[data-s="absent"]    { color: #b3bcc9;         border-color: #333a46; background: #1b1f27; }
+.card .badge[data-s="declined"]  { color: var(--declined); border-color: #4d2222; background: #241414; }
 .card img.icon {
   width: 28px; height: 28px; border-radius: 5px; flex: none;
   border: 1px solid var(--line); background: var(--bg);
 }
 .card .name { font-weight: 600; font-size: 14.5px; line-height: 1.25; word-break: break-word; }
 .card .spec { font-size: 12px; color: var(--muted); cursor: pointer; }
+/* Who is actually behind the character. Monospaced so a lookalike handle -
+   the whole trick an impersonator relies on - does not blend in. */
+.card .handle {
+  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted); margin-top: 2px; word-break: break-all;
+}
+.card .name { cursor: pointer; }
+.card .name:hover { text-decoration: underline dotted; }
+.card input.nameedit {
+  width: 100%; margin-top: 4px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--gold); border-radius: 6px; padding: 4px 6px;
+  font: inherit; font-size: 13.5px; font-weight: 600;
+}
+.card input.nameedit:focus { outline: none; }
 .card .spec:hover { color: var(--text); text-decoration: underline dotted; }
+.card .note.add { color: var(--muted); font-style: italic; opacity: .7; }
+.card .note.add:hover { opacity: 1; color: var(--gold); }
+.card .note { cursor: pointer; }
+.card textarea.noteedit {
+  width: 100%; margin-top: 6px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--gold); border-radius: 6px; padding: 5px 7px;
+  font: inherit; font-size: 12.5px; resize: vertical;
+}
+.card textarea.noteedit:focus { outline: none; }
 .card .note {
   font-size: 12.5px; color: var(--muted); margin-top: 6px;
   border-left: 2px solid var(--line); padding-left: 7px; word-break: break-word;
@@ -172,6 +237,31 @@ kbd {
   background: rgba(90,98,112,.22); border-color: var(--absent); color: var(--text); }
 .acts button[data-s="pending"]:hover, .card[data-status="pending"] .acts button[data-s="pending"] {
   background: rgba(210,153,34,.16); border-color: var(--pending); color: var(--pending); }
+/* Destructive, and on its own line: deleting an application is not a status
+   change, and it must not sit shoulder to shoulder with the six that are. */
+.acts button[data-s="remove"] {
+  flex: 1 1 100%; margin-top: 2px; color: var(--muted); border-style: dashed;
+}
+.acts button[data-s="remove"]:hover {
+  background: rgba(248,81,73,.14); border-color: var(--declined);
+  color: var(--declined); border-style: solid;
+}
+
+/* Activity log. Only ever rendered here - Discord never shows it. */
+.log { max-height: 340px; overflow-y: auto; }
+.logrow {
+  display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 10px;
+  padding: 5px 2px; border-bottom: 1px solid var(--line); font-size: 12.5px;
+}
+.logrow:last-child { border-bottom: 0; }
+.logrow .lt { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.logrow .lb { word-break: break-word; }
+.logrow b.who { font-weight: 600; color: var(--text); }
+.logrow .ld { color: var(--muted); }
+.logrow .src {
+  margin-left: 7px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px;
+}
 
 .empty { color: var(--muted); font-size: 12.5px; font-style: italic; padding: 6px 2px; }
 
@@ -204,16 +294,51 @@ const KEYS = { a: 'accepted', d: 'declined', t: 'tentative', b: 'bench', n: 'abs
 // Not derived from the status labels: "Accepted" and "Absent" both start with
 // A, so first-letter buttons would give the roster two identical controls.
 const SHORT = {
-  accepted: ['Accept', 'A'], declined: ['Decline', 'D'], tentative: ['Tent', 'T'],
-  bench: ['Bench', 'B'], absent: ['Out', 'N'], pending: ['Reset', 'P'],
+  accepted: ['Accept', 'A'], declined: ['Out', 'D'], tentative: ['Tent', 'T'],
+  bench: ['Backup', 'B'], absent: ['Absent', 'N'], pending: ['Reset', 'P'],
+};
+
+// Audit actions -> what the log says happened. Kept here rather than sent from
+// the server so an entry written by an older build still reads sensibly.
+const VERBS = {
+  apply: 'signed up', status: 'set', spec: 'reassigned', remove: 'removed',
+  withdraw: 'withdrew', raid: 'changed the raid', character: 'renamed', note: 'noted',
 };
 
 let state = null;
-let filter = 'all';
+let filter = 'active';
+let search = '';  // live text query; when set it overrides the status filter
+// Which statuses each filter shows. 'inactive' (Not playing) is everyone who
+// is neither waiting on a decision nor confirmed in — Out, Backup, Absent,
+// Tentative. Centralised so the board, the empty text and the keyboard
+// advance can never disagree about what a filter means.
+// A signup matches the search box on character name, Discord handle, class or
+// spec. Substring, case-insensitive — the same forgiving match the overview
+// page uses, so 'mage', 'mimz' or '@kaz' all narrow the board as you type.
+function matchesSearch(s) {
+  if (!search) return true;
+  return [s.character, s.discord_name, s.wow_class, s.spec_label]
+    .filter(Boolean).join(' ').toLowerCase().includes(search);
+}
+
+function inFilter(status, f) {
+  if (f === 'active') return status === 'accepted';
+  if (f === 'pending') return status === 'pending';
+  if (f === 'inactive') return status !== 'pending' && status !== 'accepted';
+  return true;  // 'all'
+}
 let inflight = 0;
 let rendered = null;  // signature of what the DOM currently shows
 
 const $ = (sel) => document.querySelector(sel);
+
+// One ordering everywhere: group by class alphabetically, then by name -
+// the same logic the Discord board uses, so a name sits in the same place
+// on every surface. wow_class can be null for an unrecognised spec.
+function byClassThenName(a, b) {
+  return (a.wow_class || '').localeCompare(b.wow_class || '')
+      || a.character.localeCompare(b.character);
+}
 
 function toast(message) {
   const el = $('#toast');
@@ -286,6 +411,49 @@ function mini(slug, alt) {
   return img;
 }
 
+function noteEditor(signup, noteEl) {
+  const box = el('textarea');
+  box.className = 'noteedit';
+  box.value = signup.note || '';
+  box.placeholder = 'Note for this player (blank clears it) — Esc to cancel';
+  box.rows = 2;
+  box.maxLength = 200;
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const value = box.value.trim();
+    if (value === (signup.note || '')) { box.replaceWith(noteEl); return; }
+    mutate('/note', { user_id: signup.user_id, note: value });
+  };
+  box.addEventListener('keydown', (e) => {
+    e.stopPropagation();  // keep the card's A/D/B shortcuts from firing while typing
+    if (e.key === 'Escape') { done = true; box.replaceWith(noteEl); }
+  });
+  box.addEventListener('blur', commit);
+  return box;
+}
+
+function nameEditor(signup) {
+  const input = el('input');
+  input.type = 'text';
+  input.value = signup.character;
+  input.placeholder = 'Name-Server';
+  input.className = 'nameedit';
+  const commit = () => {
+    const value = input.value.trim();
+    if (!value || value === signup.character) { input.remove(); return; }
+    mutate('/character', { user_id: signup.user_id, character: value });
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();  // don't trigger the card's A/D/B... shortcuts
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') input.remove();
+  });
+  input.addEventListener('blur', commit);
+  return input;
+}
+
 function specSelect(signup) {
   const select = el('select');
   for (const spec of state.specs) {
@@ -299,6 +467,13 @@ function specSelect(signup) {
   });
   select.addEventListener('keydown', (e) => e.stopPropagation());
   return select;
+}
+
+// Status metadata comes from the server's own Status enum, so a label added
+// there needs no change here.
+function statusMeta(value) {
+  return (state.statuses || []).find((s) => s.value === value)
+    || { value, label: value, emoji: '' };
 }
 
 function card(signup) {
@@ -320,17 +495,45 @@ function card(signup) {
   const box = el('div');
   const name = el('div', 'name', signup.character);
   name.style.color = signup.color;
+  name.title = 'Click to edit the character (Name-Server)';
+  name.addEventListener('click', () => {
+    if (box.querySelector('.nameedit')) return;
+    const input = nameEditor(signup);
+    name.after(input);
+    input.focus();
+    input.select();
+  });
   const spec = el('div', 'spec', signup.spec_label);
   spec.title = 'Click to reassign spec';
   spec.addEventListener('click', () => {
     if (root.querySelector('select')) return;
     root.appendChild(specSelect(signup));
   });
-  box.append(name, spec);
+  // Who is actually behind this character. The point of the whole card for a
+  // raid lead dealing with a troll: character names are free to invent, the
+  // account is not.
+  const handle = el('div', 'handle',
+    signup.discord_name ? '@' + signup.discord_name : 'id ' + signup.user_id);
+  handle.title = 'Discord ID ' + signup.user_id
+    + (signup.discord_name ? '' : ' — handle not resolved yet');
+  box.append(name, spec, handle);
   who.appendChild(box);
+
+  const meta = statusMeta(signup.status);
+  const badge = el('span', 'badge', meta.label);
+  badge.dataset.s = signup.status;
+  badge.title = meta.emoji + ' ' + meta.label;
+  who.appendChild(badge);
+
   root.appendChild(who);
 
-  if (signup.note) root.appendChild(el('div', 'note', signup.note));
+  const note = el('div', signup.note ? 'note' : 'note add', signup.note || '+ add note');
+  note.title = 'Click to edit the note';
+  note.addEventListener('click', () => {
+    if (root.querySelector('.noteedit')) return;
+    note.replaceWith(noteEditor(signup, note));
+  });
+  root.appendChild(note);
 
   if (signup.logs_url) {
     const links = el('div', 'links');
@@ -355,6 +558,14 @@ function card(signup) {
     });
     acts.appendChild(button);
   }
+  const wipe = el('button', null, 'Remove application');
+  wipe.dataset.s = 'remove';
+  wipe.title = 'Delete this application entirely  (X)';
+  wipe.addEventListener('click', (e) => {
+    e.stopPropagation();
+    removeSignup(signup);
+  });
+  acts.appendChild(wipe);
   root.appendChild(acts);
 
   root.addEventListener('keydown', (e) => {
@@ -365,15 +576,25 @@ function card(signup) {
       apply(root, signup, KEYS[key]);
     } else if (key === 'x') {
       e.preventDefault();
-      if (confirm('Remove ' + signup.character + ' from this raid?')) {
-        mutate('/remove', { user_id: signup.user_id });
-      }
+      removeSignup(signup);
     } else if (key === 'arrowdown' || key === 'arrowup') {
       e.preventDefault();
       step(root, key === 'arrowdown' ? 1 : -1);
     }
   });
   return root;
+}
+
+// Naming the account in the prompt, not just the character: the character name
+// is the part a troll controls, and it is the wrong thing to confirm against.
+function removeSignup(signup) {
+  const who = signup.character
+    + (signup.discord_name ? ' (@' + signup.discord_name + ')' : '');
+  const warning = 'Delete ' + who + "'s application?\\n\\n"
+    + 'They come off the roster entirely. The removal is recorded in '
+    + 'the activity log, with your name on it.';
+  if (!confirm(warning)) return;
+  mutate('/remove', { user_id: signup.user_id });
 }
 
 function apply(root, signup, status) {
@@ -384,7 +605,9 @@ function apply(root, signup, status) {
     // In pending-only mode the card just handled disappears, so advance; other-
     // wise stay put, or every keystroke would move the selection out from under
     // someone still reading.
-    focusCard(filter === 'pending' && next ? next : signup.user_id);
+    // Advance only if this new status drops the card out of the current filter;
+    // otherwise it stays put (e.g. Backup -> Absent while on 'Not playing').
+    focusCard(!inFilter(status, filter) && next ? next : signup.user_id);
   });
 }
 
@@ -444,7 +667,7 @@ function renderRoster() {
     // read to find a name, not to see who signed up first.
     const mine = accepted
       .filter((s) => s.role === role.key)
-      .sort((a, b) => a.character.localeCompare(b.character));
+      .sort(byClassThenName);
 
     for (const signup of mine) {
       const chip = el('span', 'member');
@@ -506,6 +729,96 @@ function renderBuffs() {
   }
 }
 
+function fmtClock(ts) {
+  const d = new Date(ts * 1000);
+  // Today's entries want the time; anything older wants the day, and a log
+  // showing "14:32" against last Tuesday is actively misleading.
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
+function who(name, id) {
+  const node = el('b', 'who', name ? '@' + name : (id ? 'id ' + id : 'the bot'));
+  if (id) node.title = 'Discord ID ' + id;
+  return node;
+}
+
+function renderLog() {
+  const entries = state.audit || [];
+  const box = $('#log');
+  box.textContent = '';
+  $('#log-count').textContent = entries.length;
+  if (!entries.length) {
+    box.appendChild(el('div', 'empty', 'nothing recorded yet'));
+    return;
+  }
+  for (const entry of entries) {
+    const row = el('div', 'logrow');
+
+    const when = el('span', 'lt', fmtClock(entry.at));
+    when.title = new Date(entry.at * 1000).toLocaleString();
+
+    const body = el('span', 'lb');
+    body.appendChild(who(entry.actor, entry.actor_id));
+    body.appendChild(document.createTextNode(' ' + (VERBS[entry.action] || entry.action)));
+    // Self-service reads "@mimz signed up", not "@mimz signed up @mimz".
+    if (entry.target_id && entry.target_id !== entry.actor_id) {
+      body.appendChild(document.createTextNode(' '));
+      body.appendChild(who(entry.target, entry.target_id));
+    }
+    if (entry.detail) body.appendChild(el('span', 'ld', ' \u2014 ' + entry.detail));
+    const tag = el('span', 'src', entry.source);
+    tag.title = entry.source === 'web' ? 'done on this page' : 'done in Discord';
+    body.appendChild(tag);
+
+    row.append(when, body);
+    box.appendChild(row);
+  }
+}
+
+function renderNeeds() {
+  const needs = state.recruit || [];
+  const box = $('#needs');
+  const panel = $('#needs-panel');
+  box.textContent = '';
+  // Nothing missing is worth saying out loud - an empty panel just looks broken.
+  if (!needs.length) {
+    panel.classList.add('done');
+    $('#needs-title').textContent = 'Raid buffs — every buff is covered';
+    box.appendChild(el('div', 'empty', 'Nothing missing. This roster brings the lot.'));
+    return;
+  }
+  panel.classList.remove('done');
+  $('#needs-title').textContent = 'Still needed — bring one of these';
+
+  const most = needs[0].count;
+  for (const need of needs) {
+    const row = el('div', 'need' + (need.count === most ? ' best' : ''));
+
+    const cls = el('span', 'cls');
+    if (need.icon) cls.appendChild(mini(need.icon, need.wow_class));
+    const name = el('span', null, need.wow_class);
+    name.style.color = need.color;
+    cls.append(name, el('span', 'n', String(need.count)));
+
+    const fixes = el('div', 'fixes');
+    for (const cover of need.covers) {
+      const chip = el('span', 'fix', cover.label);
+      if (cover.specs && cover.specs.length) {
+        // textContent on the child, so a spec name is still never markup.
+        chip.appendChild(el('em', null, '  ' + cover.specs.join(' / ') + ' only'));
+        chip.title = need.wow_class + ' brings ' + cover.label
+          + ' only as ' + cover.specs.join(' or ');
+      }
+      fixes.appendChild(chip);
+    }
+
+    row.append(cls, fixes);
+    box.appendChild(row);
+  }
+}
+
 function renderBoard() {
   const board = $('#board');
   board.textContent = '';
@@ -527,12 +840,19 @@ function renderBoard() {
     }
 
     let members = state.signups.filter((s) => s.role === role.key);
-    if (filter === 'pending') members = members.filter((s) => s.status === 'pending');
+    // Search looks across the whole raid regardless of the status tab; without a
+    // query the selected tab applies as before.
+    if (search) members = members.filter(matchesSearch);
+    else if (filter !== 'all') members = members.filter((s) => inFilter(s.status, filter));
     members.sort((a, b) =>
-      (ORDER[a.status] - ORDER[b.status]) || (a.updated_at - b.updated_at));
+      (ORDER[a.status] - ORDER[b.status]) || byClassThenName(a, b));
 
     if (!members.length) {
-      col.appendChild(el('div', 'empty', filter === 'pending' ? 'nothing pending' : 'nobody yet'));
+      const blank = search ? 'no match'
+        : filter === 'pending' ? 'nothing pending'
+        : filter === 'active' ? 'nobody accepted yet'
+        : filter === 'inactive' ? 'nobody sitting out' : 'nobody yet';
+      col.appendChild(el('div', 'empty', blank));
     }
     for (const signup of members) col.appendChild(card(signup));
     board.appendChild(col);
@@ -549,12 +869,17 @@ function renderBoard() {
 // no-op: tearing the board down and rebuilding it on a timer collapses the
 // page height mid-scroll and drags the reader around for no reason.
 function signature() {
+  const audit = state.audit || [];
   return JSON.stringify([
     filter,
+    search,
     state.raid,
     state.roles,
     state.signups.map((s) =>
-      [s.user_id, s.status, s.spec_key, s.character, s.note, s.logs_url]),
+      [s.user_id, s.status, s.spec_key, s.character, s.note, s.logs_url, s.discord_name]),
+    // Entries are append-only and trimmed from the tail, so the newest id plus
+    // the length pins the list down without hashing all 120 rows every poll.
+    [audit.length, audit.length ? audit[0].id : 0],
   ]);
 }
 
@@ -572,7 +897,9 @@ function render(next) {
 
   renderRoster();
   renderBuffs();
+  renderNeeds();
   renderBoard();
+  renderLog();
 
   // Emptying the board shortens the document, and the browser clamps scrollY to
   // fit; put it back now the new content has restored the height.
@@ -585,13 +912,40 @@ function render(next) {
   }
 }
 
-$('#f-all').addEventListener('click', () => setFilter('all'));
+$('#refresh').addEventListener('click', async () => {
+  const btn = $('#refresh');
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = '↻ Refreshing…';
+  try {
+    await api('/refresh', {});
+    toast('Discord board refreshed. If it still looks stale, scroll away and back — that is Discord caching, not the data.');
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.textContent = was;
+    btn.disabled = false;
+  }
+});
+
+$('#q').addEventListener('input', (e) => {
+  search = e.target.value.trim().toLowerCase();
+  // Typing searches the whole raid, so surface every status, not just the tab.
+  if (search && filter !== 'all') setFilter('all');  // setFilter re-renders
+  else if (state) render(state);
+});
+
+$('#f-active').addEventListener('click', () => setFilter('active'));
 $('#f-pending').addEventListener('click', () => setFilter('pending'));
+$('#f-inactive').addEventListener('click', () => setFilter('inactive'));
+$('#f-all').addEventListener('click', () => setFilter('all'));
 
 function setFilter(next) {
   filter = next;
-  $('#f-all').classList.toggle('on', next === 'all');
-  $('#f-pending').classList.toggle('on', next === 'pending');
+  for (const [id, val] of [['#f-active','active'], ['#f-pending','pending'],
+                           ['#f-inactive','inactive'], ['#f-all','all']]) {
+    $(id).classList.toggle('on', next === val);
+  }
   if (state) render(state);
 }
 
@@ -635,19 +989,19 @@ def _csp(nonce: str) -> str:
     )
 
 
-def render_page(title: str) -> web.Response:
-    nonce = secrets.token_urlsafe(16)
-    body = f"""
+#: The whole page body, minus the two things that differ between the live page
+#: and the preview: the banner at the top and the raid title.
+#:
+#: Shared with tools/build_preview.py deliberately. The preview used to keep its
+#: own copy of this markup, drifted from it, and ended up missing an element the
+#: real script writes to — which threw on first render and stopped the preview
+#: updating at all. One template is the fix for that whole class of bug.
+BODY = """
 <div class="wrap">
-  <div class="warn">
-    <strong>DO NOT SHARE THIS LINK.</strong> Anyone who opens it can change this
-    raid's roster as you. It expires on its own — ask the bot for a fresh one
-    rather than forwarding this.
-  </div>
-
+{banner}
   <header class="top">
     <div>
-      <h1 id="title">{html.escape(title)}</h1>
+      <h1 id="title">{title}</h1>
       <div class="meta" id="meta"></div>
     </div>
     <div class="meta" id="counts"></div>
@@ -664,23 +1018,53 @@ def render_page(title: str) -> web.Response:
     <div class="chips" id="buffs"></div>
   </div>
 
+  <div class="panel" id="needs-panel">
+    <h2 id="needs-title">Still needed — bring one of these</h2>
+    <div class="needs" id="needs"></div>
+  </div>
+
   <div class="toolbar">
-    <button id="f-all" class="on">All signups</button>
+    <button id="f-active" class="on">Active roster</button>
     <button id="f-pending">Pending only</button>
+    <button id="f-inactive">Not playing</button>
+    <button id="f-all">All signups</button>
+    <input id="q" class="search" type="search" autocomplete="off"
+           placeholder="Search name, @handle or class…">
+    <button id="refresh" title="Redraw the raid board in Discord now">↻ Refresh board</button>
     <span class="grow"></span>
     <span class="hint">
-      Focus a card, then <kbd>A</kbd>ccept <kbd>D</kbd>ecline <kbd>T</kbd>entative
-      <kbd>B</kbd>ench <kbd>N</kbd> absent <kbd>P</kbd>ending <kbd>X</kbd> remove ·
-      <kbd>↑</kbd><kbd>↓</kbd> to move
+      Focus a card, then <kbd>A</kbd>ccept <kbd>D</kbd> out <kbd>T</kbd>entative
+      <kbd>B</kbd>ackup <kbd>N</kbd> absent <kbd>P</kbd>ending <kbd>X</kbd> remove ·
+      <kbd>↑</kbd><kbd>↓</kbd> to move · click a name or spec to edit it · every change is logged below
     </span>
   </div>
 
   <div class="hint" id="orphans"></div>
   <div class="board" id="board"></div>
+
+  <div class="panel" id="log-panel">
+    <h2>Activity log — <span class="n" id="log-count"></span> entries · visible only here</h2>
+    <div class="log" id="log"></div>
+  </div>
 </div>
 <div id="toast"></div>
-<script nonce="{nonce}">{SCRIPT}</script>
 """
+
+WARNING = """
+  <div class="warn">
+    <strong>DO NOT SHARE THIS LINK.</strong> Anyone who opens it can change this
+    raid's roster as you, and every change is recorded against your name. It
+    expires on its own — ask the bot for a fresh one rather than forwarding this.
+  </div>
+"""
+
+
+def render_page(title: str) -> web.Response:
+    nonce = secrets.token_urlsafe(16)
+    body = (
+        BODY.format(banner=WARNING, title=html.escape(title))
+        + f'<script nonce="{nonce}">{SCRIPT}</script>'
+    )
     response = web.Response(text=_shell(title, body, nonce), content_type="text/html")
     response.headers["Content-Security-Policy"] = _csp(nonce)
     return response
@@ -688,7 +1072,8 @@ def render_page(title: str) -> web.Response:
 
 def render_error(status: int, message: str) -> web.Response:
     nonce = secrets.token_urlsafe(16)
-    heading = {401: "Link expired", 403: "No access", 404: "Not found", 410: "Raid retired"}.get(
+    heading = {401: "Link expired", 403: "No access", 404: "Not found", 410: "Raid retired",
+     503: "Starting up"}.get(
         status, "Something went wrong"
     )
     body = (

@@ -10,7 +10,11 @@ import discord
 
 from ..store import Raid, RaidState, Status, raid_is_closed
 from .apply import start_application
-from .common import deny, is_admin, refresh_raid_message, store_of
+from ..config import region_label
+from .common import (
+    audit, deny, derive_logs_url, handle_of, interaction_is_admin,
+    refresh_raid_message, split_character, store_of,
+)
 
 
 async def _resolve_raid(interaction: discord.Interaction):
@@ -39,22 +43,36 @@ async def _set_own_status(interaction: discord.Interaction, status: Status) -> N
 
     if existing is not None:
         store.set_status(raid.id, interaction.user.id, status, interaction.user.id)
+        audit(
+            interaction, raid.id, "status",
+            target_id=interaction.user.id,
+            target_name=handle_of(interaction.user),
+            detail=f"{existing.character_name} — {existing.status.label} -> {status.label}",
+        )
     else:
         player = store.get_player(interaction.user.id)
-        if player is None:
-            # First-timer: collect their details and land them on the status they
-            # actually pressed. Refusing them here just meant applying first and
-            # then correcting it, which is the round trip this avoids.
+        if player is None or split_character(player.character_name) is None:
+            # First-timer, or a saved flat name: collect details (with the
+            # Name-Server rule) and land them on the status they pressed, rather
+            # than a round trip through Apply.
             await start_application(interaction, raid.id, status)
             return
         store.upsert_signup(
             raid_id=raid.id,
             user_id=interaction.user.id,
             character_name=player.character_name,
-            logs_url=player.logs_url,
+            logs_url=player.logs_url
+            or derive_logs_url(player.character_name, region_label(raid.timezone)),
             spec_key=player.spec_key,
             status=status,
             updated_by=interaction.user.id,
+            discord_name=handle_of(interaction.user),
+        )
+        audit(
+            interaction, raid.id, "apply",
+            target_id=interaction.user.id,
+            target_name=handle_of(interaction.user),
+            detail=f"{player.character_name} — {status.label}",
         )
 
     await interaction.response.send_message(
@@ -111,7 +129,7 @@ class RaidView(discord.ui.View):
         await _set_own_status(interaction, Status.TENTATIVE)
 
     @discord.ui.button(
-        label="Bench me", emoji="🪑", style=discord.ButtonStyle.secondary, custom_id="raid:bench", row=0
+        label="Backup", emoji="⭐", style=discord.ButtonStyle.secondary, custom_id="raid:bench", row=0
     )
     async def bench(self, interaction: discord.Interaction, _b: discord.ui.Button) -> None:
         await _set_own_status(interaction, Status.BENCH)
@@ -130,7 +148,14 @@ class RaidView(discord.ui.View):
         if raid is None:
             return
         store = store_of(interaction)
+        existing = store.get_signup(raid.id, interaction.user.id)
         if store.remove_signup(raid.id, interaction.user.id):
+            audit(
+                interaction, raid.id, "withdraw",
+                target_id=interaction.user.id,
+                target_name=handle_of(interaction.user),
+                detail=existing.character_name if existing else None,
+            )
             await interaction.response.send_message(
                 f"Removed you from **{raid.title}**.", ephemeral=True
             )
@@ -150,7 +175,7 @@ class RaidView(discord.ui.View):
         raid = await _resolve_raid(interaction)
         if raid is None:
             return
-        if not is_admin(interaction.user):
+        if not interaction_is_admin(interaction):
             await deny(interaction, "🔒 Only raid admins can manage the roster.")
             return
         await open_roster_manager(interaction, raid.id)
@@ -165,7 +190,7 @@ class RaidView(discord.ui.View):
         raid = await _resolve_raid(interaction)
         if raid is None:
             return
-        if not is_admin(interaction.user):
+        if not interaction_is_admin(interaction):
             await deny(interaction, "🔒 Only raid admins can change raid settings.")
             return
         await open_raid_settings(interaction, raid.id)
@@ -187,7 +212,7 @@ class RaidView(discord.ui.View):
         raid = await _resolve_raid(interaction)
         if raid is None:
             return
-        if not is_admin(interaction.user):
+        if not interaction_is_admin(interaction):
             await deny(
                 interaction,
                 "🔒 **The roster manager is for raid leads.**\n"

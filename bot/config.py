@@ -96,9 +96,35 @@ WEB_TOKEN_TTL_MINUTES: int = int(os.getenv("WEB_TOKEN_TTL_MINUTES", "180"))
 #: A raid's page stops answering this many days after the raid ends.
 WEB_RETENTION_DAYS: int = int(os.getenv("WEB_RETENTION_DAYS", "30"))
 
+#: Who gets a Discord @mention beside their name on the accepted roster, so a
+#: raid lead can see who each character is on Discord. It renders in the board
+#: *embed*, which never sends a notification - it is a label, not a ping.
+#: "all" mentions every accepted player; otherwise a comma-separated list of
+#: user IDs (used to trial it on one person first); empty turns it off.
+_MENTION_RAW: str = os.getenv("MENTION_ON_ACCEPT", "").strip()
+MENTION_ON_ACCEPT_ALL: bool = _MENTION_RAW.lower() == "all"
+MENTION_ON_ACCEPT_IDS: frozenset[int] = frozenset(
+    int(x) for x in _MENTION_RAW.split(",") if x.strip().isdigit()
+)
+
+
+def mention_on_accept(user_id: int) -> bool:
+    """Should this accepted player be @mentioned on the roster embed?"""
+    return MENTION_ON_ACCEPT_ALL or user_id in MENTION_ON_ACCEPT_IDS
+
+
 #: Assumed length of a raid that never had a duration set, used only to work
 #: out when it "ended" for expiry purposes.
 DEFAULT_RAID_DURATION_MINUTES: int = 180
+
+
+#: If the gateway stays disconnected for this many seconds, the process exits so
+#: systemd (Restart=always) starts it fresh. A cold start re-IDENTIFYs at once,
+#: whereas discord.py's in-process reconnect backoff ramps toward ~8 minutes, so
+#: a brief Discord blip can otherwise leave the bot idle-waiting long after the
+#: gateway is healthy again. 0 disables the watchdog. Keep it comfortably above
+#: a normal resume (a few seconds) so ordinary reconnects are never cut short.
+GATEWAY_WATCHDOG_SECONDS: int = int(os.getenv("GATEWAY_WATCHDOG_SECONDS", "120"))
 
 
 def resolve_timezone(name: str | None = None) -> str:

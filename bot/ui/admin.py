@@ -17,7 +17,10 @@ from ..data.specs import ROLE_ORDER, Role, get_spec
 from ..emojis import registry
 from ..store import RaidState, Signup, Status
 from .apply import SpecPickerView
-from .common import deny, is_admin, refresh_raid_message, request_raid_refresh, store_of
+from .common import (
+    audit, deny, interaction_is_admin, refresh_raid_message, request_raid_refresh,
+    store_of,
+)
 from .embeds import clamp_title
 from .schedule import (
     format_duration, format_local, is_known_timezone, parse_duration, parse_when,
@@ -65,7 +68,7 @@ class RosterManager(discord.ui.View):
         return rows[:SELECT_LIMIT]
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if is_admin(interaction.user):
+        if interaction_is_admin(interaction):
             return True
         await deny(interaction, "🔒 Admins only.")
         return False
@@ -284,6 +287,12 @@ class StatusButton(_NeedsSelection):
             )
             await deny(interaction, "Couldn't update that player — nothing was changed.")
             return
+        audit(
+            interaction, self.manager.raid_id, "status",
+            target_id=signup.user_id,
+            target_name=signup.discord_name,
+            detail=f"{signup.character_name} — {signup.status.label} -> {self.status.label}",
+        )
         log.info(
             "raid #%s: %s set %s (%s) -> %s",
             self.manager.raid_id, interaction.user, signup.character_name,
@@ -309,6 +318,17 @@ class ChangeSpecButton(_NeedsSelection):
                 self.manager.raid_id, signup.user_id, spec_key, spec_interaction.user.id
             )
             spec = get_spec(spec_key)
+            was = get_spec(signup.spec_key)
+            audit(
+                spec_interaction, self.manager.raid_id, "spec",
+                target_id=signup.user_id,
+                target_name=signup.discord_name,
+                detail=(
+                    f"{signup.character_name} — "
+                    f"{was.full_name if was else signup.spec_key} -> "
+                    f"{spec.full_name if spec else spec_key}"
+                ),
+            )
             await spec_interaction.response.edit_message(
                 content=f"✅ **{signup.character_name}** is now "
                 f"{registry.spec(spec_key)} {spec.full_name if spec else spec_key}.",
@@ -335,6 +355,12 @@ class RemoveButton(_NeedsSelection):
             return
         store = self.manager._store(interaction)
         store.remove_signup(self.manager.raid_id, signup.user_id)
+        audit(
+            interaction, self.manager.raid_id, "remove",
+            target_id=signup.user_id,
+            target_name=signup.discord_name,
+            detail=f"{signup.character_name} — was {signup.status.label}",
+        )
         log.info(
             "raid #%s: %s removed %s", self.manager.raid_id, interaction.user, signup.character_name
         )
@@ -447,6 +473,10 @@ class CapsModal(discord.ui.Modal, title="Role targets"):
             caps[key] = int(raw)
         store = store_of(interaction)
         store.set_caps(self.raid_id, caps)
+        audit(
+            interaction, self.raid_id, "raid",
+            detail="role targets set to " + ", ".join(f"{k} {v}" for k, v in caps.items()),
+        )
         await interaction.response.send_message(
             "✅ Role targets updated: "
             + ", ".join(f"{k} {v}" for k, v in caps.items())
@@ -542,6 +572,7 @@ class DetailsModal(discord.ui.Modal, title="Raid details"):
         )
         store.set_timezone(self.raid_id, tz_name)
         store.set_schedule(self.raid_id, starts_at, duration_minutes)
+        audit(interaction, self.raid_id, "raid", detail="raid details / schedule edited")
 
         if starts_at and duration_minutes:
             detail = (
@@ -561,7 +592,7 @@ class RaidSettings(discord.ui.View):
         self.raid_id = raid_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if is_admin(interaction.user):
+        if interaction_is_admin(interaction):
             return True
         await deny(interaction, "🔒 Admins only.")
         return False
@@ -591,6 +622,7 @@ class RaidSettings(discord.ui.View):
         raid = self._raid(interaction)
         new_state = RaidState.OPEN if raid.state is RaidState.LOCKED else RaidState.LOCKED
         store_of(interaction).set_raid_state(self.raid_id, new_state)
+        audit(interaction, self.raid_id, "raid", detail=f"raid {new_state.value}")
         await interaction.response.send_message(
             f"Raid is now **{new_state.value}**.", ephemeral=True
         )
@@ -599,6 +631,7 @@ class RaidSettings(discord.ui.View):
     @discord.ui.button(label="Cancel raid", emoji="🛑", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, _b: discord.ui.Button) -> None:
         store_of(interaction).set_raid_state(self.raid_id, RaidState.CANCELLED)
+        audit(interaction, self.raid_id, "raid", detail="raid cancelled")
         await interaction.response.send_message("🛑 Raid cancelled.", ephemeral=True)
         await refresh_raid_message(interaction.client, self.raid_id)
 
@@ -609,6 +642,10 @@ class RaidSettings(discord.ui.View):
         raid = self._raid(interaction)
         enabled = not raid.auto_accept
         store_of(interaction).set_auto_accept(self.raid_id, enabled)
+        audit(
+            interaction, self.raid_id, "raid",
+            detail=f"auto-accept turned {'on' if enabled else 'off'}",
+        )
         log.info(
             "raid #%s: %s set auto-accept %s", self.raid_id, interaction.user, enabled
         )
