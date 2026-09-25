@@ -388,9 +388,16 @@ class WebManagerButton(discord.ui.Button):
 
 
 async def send_manager_link(interaction: discord.Interaction, raid_id: int) -> None:
-    """Ephemeral message carrying one admin's link, with the sharing warning."""
+    """Ephemeral message with link buttons: this raid, and this server's index.
+
+    Link buttons, not a pasted URL: one click opens the page in the browser
+    directly. Discord cannot launch a browser straight from a gated button
+    press (that would have to happen with no click), so a link button in the
+    admin-only ephemeral is as direct as it gets - and it never puts the URL on
+    the public board, where it would be a credential anyone could grab.
+    """
     from ..config import WEB_TOKEN_TTL_MINUTES
-    from ..web.server import manager_url
+    from ..web.server import guild_index_url, manager_url
 
     if not WEB_ENABLED:
         await deny(
@@ -399,20 +406,29 @@ async def send_manager_link(interaction: discord.Interaction, raid_id: int) -> N
         )
         return
 
-    url = manager_url(raid_id, interaction.user.id)
     hours = WEB_TOKEN_TTL_MINUTES // 60
     lifetime = f"{hours}h" if hours else f"{WEB_TOKEN_TTL_MINUTES}m"
-    log.info("raid #%s: issued a manager link to %s", raid_id, interaction.user)
+    log.info("raid #%s: issued manager + index links to %s", raid_id, interaction.user)
 
-    # The URL is deliberately not embedded in a markdown link - a raid lead who
-    # is about to be told not to share something should be able to see exactly
-    # what it is they are holding.
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(
+        label="Open this raid", emoji="🌐", style=discord.ButtonStyle.link,
+        url=manager_url(raid_id, interaction.user.id),
+    ))
+    if interaction.guild_id is not None:
+        view.add_item(discord.ui.Button(
+            label="All raids (this server)", emoji="📋", style=discord.ButtonStyle.link,
+            url=guild_index_url(interaction.guild_id, interaction.user.id),
+        ))
+
     await interaction.response.send_message(
-        f"🌐 **Roster manager — raid #{raid_id}**\n{url}\n\n"
-        f"⚠️ **DO NOT SHARE THIS LINK.** IT LETS ANYONE WHO OPENS IT CHANGE THIS "
-        f"RAID'S ROSTER AS YOU.\n"
-        f"It expires in **{lifetime}** — press the button again for a fresh one "
-        f"rather than forwarding this to anyone.",
+        "🌐 **Roster manager** — the buttons below open in your browser.\n"
+        "• **Open this raid** — manage this raid's roster.\n"
+        "• **All raids (this server)** — browse and search every raid here, and "
+        "open any of them.\n\n"
+        f"⚠️ **DO NOT SHARE THESE LINKS.** They act as you and expire in "
+        f"**{lifetime}** — press the button again for fresh ones.",
+        view=view,
         ephemeral=True,
     )
 

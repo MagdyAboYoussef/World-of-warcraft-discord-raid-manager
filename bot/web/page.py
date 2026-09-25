@@ -308,6 +308,7 @@ const VERBS = {
 let state = null;
 let filter = 'active';
 let search = '';  // live text query; when set it overrides the status filter
+let logSearch = '';  // live filter for the activity log only
 // Which statuses each filter shows. 'inactive' (Not playing) is everyone who
 // is neither waiting on a decision nor confirmed in — Out, Backup, Absent,
 // Tentative. Centralised so the board, the empty text and the keyboard
@@ -745,12 +746,15 @@ function who(name, id) {
 }
 
 function renderLog() {
-  const entries = state.audit || [];
+  const q = logSearch.trim().toLowerCase();
+  const entries = (state.audit || []).filter((e) => !q ||
+    [e.actor, e.target, e.detail, e.action, e.source].filter(Boolean)
+      .join(' ').toLowerCase().includes(q));
   const box = $('#log');
   box.textContent = '';
   $('#log-count').textContent = entries.length;
   if (!entries.length) {
-    box.appendChild(el('div', 'empty', 'nothing recorded yet'));
+    box.appendChild(el('div', 'empty', logSearch ? 'no matching entries' : 'nothing recorded yet'));
     return;
   }
   for (const entry of entries) {
@@ -928,6 +932,11 @@ $('#refresh').addEventListener('click', async () => {
   }
 });
 
+$('#log-q').addEventListener('input', (e) => {
+  logSearch = e.target.value;
+  if (state) renderLog();
+});
+
 $('#q').addEventListener('input', (e) => {
   search = e.target.value.trim().toLowerCase();
   // Typing searches the whole raid, so surface every status, not just the tab.
@@ -1044,6 +1053,8 @@ BODY = """
 
   <div class="panel" id="log-panel">
     <h2>Activity log — <span class="n" id="log-count"></span> entries · visible only here</h2>
+    <input id="log-q" class="search" type="search" autocomplete="off"
+           placeholder="Filter the log — name, @handle, class, server, action…">
     <div class="log" id="log"></div>
   </div>
 </div>
@@ -1066,6 +1077,113 @@ def render_page(title: str) -> web.Response:
         + f'<script nonce="{nonce}">{SCRIPT}</script>'
     )
     response = web.Response(text=_shell(title, body, nonce), content_type="text/html")
+    response.headers["Content-Security-Policy"] = _csp(nonce)
+    return response
+
+
+GUILD_STYLE = """
+.rlist { display: flex; flex-direction: column; gap: 6px; }
+a.raidrow {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  text-decoration: none; color: var(--text);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  padding: 10px 14px;
+}
+a.raidrow:hover { border-color: #3a4553; background: var(--panel-2); }
+a.raidrow .t { font-weight: 600; flex: 1; min-width: 200px; }
+a.raidrow .w { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+a.raidrow .c { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+a.raidrow.past .t { color: var(--muted); }
+a.raidrow.hide { display: none; }
+.guildhead { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+"""
+
+GUILD_SCRIPT = """
+const RAIDS = __RAIDS__;
+const NOW = Date.now() / 1000;
+let scope = 'upcoming';
+let q = '';
+const $ = (s) => document.querySelector(s);
+
+function fmtWhen(ts) {
+  if (!ts) return 'no time set';
+  return new Date(ts * 1000).toLocaleString([], {
+    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+}
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;   // never innerHTML: raid titles are user text
+  return n;
+}
+function isPast(r) { return r.finished || r.state === 'cancelled'; }
+
+function render() {
+  const list = $('#list'); list.textContent = '';
+  const needle = q.trim().toLowerCase();
+  const rows = RAIDS
+    .filter((r) => needle
+       ? ((r.title + ' ' + fmtWhen(r.starts_at)).toLowerCase().includes(needle))
+       : (scope === 'all' || (scope === 'past' ? isPast(r) : !isPast(r))))
+    .sort((a, b) => (b.starts_at || 0) - (a.starts_at || 0) || b.id - a.id);
+  $('#count').textContent = rows.length + ' raid' + (rows.length === 1 ? '' : 's');
+  if (!rows.length) { list.appendChild(el('div', 'empty', 'nothing here')); return; }
+  for (const r of rows) {
+    const a = el('a', 'raidrow' + (isPast(r) ? ' past' : ''));
+    a.href = r.url;
+    const state = isPast(r) ? (r.state === 'cancelled' ? 'cancelled' : 'finished') : r.state;
+    a.appendChild(el('span', 'pill ' + (r.state === 'cancelled' ? 'cancelled' : (isPast(r) ? '' : 'open')), state));
+    a.appendChild(el('span', 't', '#' + r.id + '  ' + r.title));
+    a.appendChild(el('span', 'w', fmtWhen(r.starts_at)));
+    a.appendChild(el('span', 'c', r.accepted + ' accepted / ' + r.signups + ' signed up'));
+    list.appendChild(a);
+  }
+}
+$('#q').addEventListener('input', (e) => { q = e.target.value; render(); });
+for (const [id, val] of [['#f-upcoming','upcoming'],['#f-past','past'],['#f-all','all']]) {
+  $(id).addEventListener('click', () => {
+    scope = val; q = ''; $('#q').value = '';
+    for (const [i2] of [['#f-upcoming'],['#f-past'],['#f-all']]) $(i2).classList.remove('on');
+    $(id).classList.add('on'); render();
+  });
+}
+render();
+"""
+
+
+def render_guild_index(guild_name: str, rows: list, expires_at: int) -> web.Response:
+    import json as _json
+    nonce = secrets.token_urlsafe(16)
+    left = max(0, (expires_at - int(__import__("time").time())) // 60)
+    body = f"""
+<div class="wrap">
+  <div class="warn">
+    <strong>DO NOT SHARE THIS LINK.</strong> It lists every raid in this server
+    and opens each one as you. It expires on its own — ask the bot for a fresh one.
+  </div>
+  <div class="guildhead">
+    <div>
+      <h1 id="title">Raids — {html.escape(guild_name)}</h1>
+      <div class="meta"><span id="count"></span> · link expires in {left} min</div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button id="f-upcoming" class="on">Upcoming</button>
+    <button id="f-past">Past</button>
+    <button id="f-all">All</button>
+    <input id="q" class="search" type="search" autocomplete="off"
+           placeholder="Search a raid name or date…">
+    <span class="grow"></span>
+  </div>
+  <div class="rlist" id="list"></div>
+</div>
+<script nonce="{nonce}">{GUILD_SCRIPT.replace("__RAIDS__", _json.dumps(rows))}</script>
+"""
+    page = _shell(f"Raids — {guild_name}", body, nonce).replace(
+        "</style>", GUILD_STYLE + "</style>", 1
+    )
+    response = web.Response(text=page, content_type="text/html")
     response.headers["Content-Security-Policy"] = _csp(nonce)
     return response
 

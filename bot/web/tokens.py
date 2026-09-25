@@ -66,6 +66,14 @@ class Claims:
     expires_at: int
 
 
+@dataclass(frozen=True, slots=True)
+class GuildClaims:
+    """A link that grants one admin the raid *index* for one server."""
+    guild_id: int
+    user_id: int
+    expires_at: int
+
+
 def _b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
@@ -106,3 +114,32 @@ def verify(token: str) -> Claims | None:
     if expires_at <= int(time.time()):
         return None
     return Claims(raid_id=raid_id, user_id=user_id, expires_at=expires_at)
+
+
+def issue_guild(guild_id: int, user_id: int, ttl_minutes: int | None = None) -> str:
+    """A guild-index token. The leading 'g.' keeps its payload shape distinct
+    from a raid token, so verify() rejects it and verify_guild() rejects a raid
+    token - one can never be used where the other is expected."""
+    ttl = WEB_TOKEN_TTL_MINUTES if ttl_minutes is None else ttl_minutes
+    expires_at = int(time.time()) + ttl * 60
+    payload = f"g.{guild_id}.{user_id}.{expires_at}".encode()
+    return f"{_b64(payload)}.{_sign(payload)}"
+
+
+def verify_guild(token: str) -> GuildClaims | None:
+    """Decode a guild-index token, or None if malformed, forged, or expired."""
+    try:
+        encoded, signature = token.split(".", 1)
+        payload = _unb64(encoded)
+    except (ValueError, TypeError, base64.binascii.Error):
+        return None
+    if not hmac.compare_digest(signature, _sign(payload)):
+        return None
+    try:
+        kind, guild_id, user_id, expires_at = payload.decode().split(".")
+        guild_id, user_id, expires_at = int(guild_id), int(user_id), int(expires_at)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if kind != "g" or expires_at <= int(time.time()):
+        return None
+    return GuildClaims(guild_id=guild_id, user_id=user_id, expires_at=expires_at)

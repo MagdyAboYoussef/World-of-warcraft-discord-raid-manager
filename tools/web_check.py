@@ -204,6 +204,7 @@ async def main() -> None:
         aioweb.post("/r/{token}/remove", srv.handle_remove),
         aioweb.post("/r/{token}/refresh", srv.handle_refresh),
         aioweb.get("/overview/{key}", srv.handle_overview),
+        aioweb.get("/g/{token}", srv.handle_guild_index),
     ])
     client = TestClient(TestServer(app))
     await client.start_server()
@@ -630,6 +631,24 @@ async def main() -> None:
     res = await client.get(f"/overview/{saved}")
     check("route is inert without a key", res.status == 404)
     srv._overview_key = saved
+
+    print("\n[7c] per-server admin index")
+    gtok = tokens.issue_guild(GUILD, ADMIN)
+    res = await client.get(f"/g/{gtok}")
+    page = await res.text()
+    check("admin gets the server index", res.status == 200, f"got {res.status}")
+    check("no-referrer on the index (token in path)",
+          res.headers.get("Referrer-Policy") == "no-referrer")
+    check("index lists this server's raids", '"id": ' + str(raid.id) in page or f"#{raid.id}" in page)
+    check("index links open per-raid manager pages", "/r/" in page)
+    # admin-only: a non-admin's guild token is refused
+    res = await client.get(f"/g/{tokens.issue_guild(GUILD, OUTSIDER)}")
+    check("a non-admin is refused the index", res.status == 403, f"got {res.status}")
+    # a raid token must not work as a guild token and vice versa
+    res = await client.get(f"/g/{good}")
+    check("a raid token is rejected on the guild route", res.status == 401, f"got {res.status}")
+    check("guild verify rejects a raid token", tokens.verify_guild(good) is None)
+    check("raid verify rejects a guild token", tokens.verify(gtok) is None)
 
     print("\n[8] retirement")
     old = store.create_raid(

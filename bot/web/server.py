@@ -26,7 +26,7 @@ from ..data import targets as targets_data
 from ..data.buffs import evaluate as evaluate_buffs
 from ..data.buffs import recruits as buff_recruits
 from ..data.specs import CLASS_COLORS, CLASS_ICONS, ROLE_ORDER, SPECS, Role, get_spec
-from ..store import Raid, RaidState, Status, page_expires_at
+from ..store import Raid, RaidState, Status, page_expires_at, raid_is_finished as _raid_is_finished
 from ..ui.common import (
     WCL_RE, derive_logs_url, is_admin, refresh_raid_message,
     request_raid_refresh, split_character,
@@ -140,6 +140,7 @@ class RaidWebServer:
             [
                 web.get("/healthz", self.handle_health),
                 web.get("/r/{token}", self.handle_page),
+                web.get("/g/{token}", self.handle_guild_index),
                 web.get("/r/{token}/state", self.handle_state),
                 web.post("/r/{token}/status", self.handle_status),
                 web.post("/r/{token}/spec", self.handle_spec),
@@ -237,6 +238,26 @@ class RaidWebServer:
         self._admin_cache[(guild_id, user_id)] = (time.monotonic(), allowed)
         return allowed
 
+    async def _authorise_guild(self, request: web.Request) -> tokens.GuildClaims:
+        claims = tokens.verify_guild(request.match_info["token"])
+        if claims is None:
+            raise _Denied(401, "This link is invalid or has expired. Ask the bot for a new one.")
+        self._rate_limit((claims.guild_id, claims.user_id))
+        guild = self.bot.get_guild(claims.guild_id)
+        if guild is None:
+            if not self.bot.is_ready():
+                raise _Denied(503, "The bot is just starting up. Refresh in a few seconds.")
+            raise _Denied(403, "That server can't be reached — the bot may have been removed.")
+        # Re-checked every request: the admin index is admins-only, full stop.
+        if not await self._is_admin(guild, claims.user_id):
+            raise _Denied(
+                403,
+                "You don't have permission to view this server's raids. It needs "
+                "Discord's Administrator permission, or a role named "
+                + " or ".join(sorted(n.title() for n in ADMIN_ROLE_NAMES)) + ".",
+            )
+        return claims
+
     async def _authorise(self, request: web.Request) -> tuple[tokens.Claims, Raid]:
         # Verified before anything else is touched. Signature checking is pure
         # CPU with no allocation that outlives the request, so an unauthenticated
@@ -294,6 +315,33 @@ class RaidWebServer:
         if not key or not overview.key_matches(request.match_info["key"], key):
             raise web.HTTPNotFound()
         return _secure(overview.render_overview(self.bot))
+
+    async def handle_guild_index(self, request: web.Request) -> web.Response:
+        from .page import render_guild_index
+        try:
+            claims = await self._authorise_guild(request)
+        except _Denied as denied:
+            return _error_page(denied)
+        guild = self.bot.get_guild(claims.guild_id)
+        store = self.bot.store
+        rows = []
+        for raid in store.all_raids():
+            if raid.guild_id != claims.guild_id:
+                continue
+            signups = store.signups(raid.id)
+            accepted = sum(1 for x in signups if x.status is Status.ACCEPTED)
+            rows.append({
+                "id": raid.id,
+                "title": raid.title,
+                "state": raid.state.value,
+                "finished": _raid_is_finished(raid),
+                "starts_at": raid.starts_at,
+                "accepted": accepted,
+                "signups": len(signups),
+                "url": f"{WEB_BASE_URL}/r/{tokens.issue(raid.id, claims.user_id)}",
+            })
+        name = getattr(guild, "name", f"server {claims.guild_id}")
+        return _secure(render_guild_index(name, rows, claims.expires_at))
 
     async def handle_page(self, request: web.Request) -> web.Response:
         try:
@@ -698,3 +746,8 @@ def _error_page(denied: _Denied) -> web.Response:
 def manager_url(raid_id: int, user_id: int) -> str:
     """The signed link for one admin to manage one raid."""
     return f"{WEB_BASE_URL}/r/{tokens.issue(raid_id, user_id)}"
+
+
+def guild_index_url(guild_id: int, user_id: int) -> str:
+    """The signed link for one admin to browse every raid in one server."""
+    return f"{WEB_BASE_URL}/g/{tokens.issue_guild(guild_id, user_id)}"
