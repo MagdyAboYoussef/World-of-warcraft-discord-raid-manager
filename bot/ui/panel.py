@@ -196,7 +196,7 @@ class RaidView(discord.ui.View):
         await open_raid_settings(interaction, raid.id)
 
     @discord.ui.button(
-        label="Open UI", emoji="🌐", style=discord.ButtonStyle.primary,
+        label="Admin UI", emoji="🌐", style=discord.ButtonStyle.primary,
         custom_id="raid:web", row=1,
     )
     async def web_manager(self, interaction: discord.Interaction, _b: discord.ui.Button) -> None:
