@@ -1131,18 +1131,37 @@ def render_page(title: str) -> web.Response:
 
 GUILD_STYLE = """
 .rlist { display: flex; flex-direction: column; gap: 6px; }
-a.raidrow {
-  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-  text-decoration: none; color: var(--text);
+.raidrow {
   background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
-  padding: 10px 14px;
+  margin-bottom: 6px; overflow: hidden;
 }
-a.raidrow:hover { border-color: #3a4553; background: var(--panel-2); }
-a.raidrow .t { font-weight: 600; flex: 1; min-width: 200px; }
-a.raidrow .w { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-a.raidrow .c { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
-a.raidrow.past .t { color: var(--muted); }
-a.raidrow.hide { display: none; }
+.raidrow.hide { display: none; }
+.rhead {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; cursor: pointer;
+}
+.rhead:hover { background: var(--panel-2); }
+.rhead .caret { color: var(--muted); transition: transform .12s; }
+.raidrow.open .rhead .caret { transform: rotate(90deg); }
+.rhead .t { font-weight: 600; flex: 1; min-width: 200px; }
+.rhead .w { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rhead .c { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.raidrow.past .rhead .t { color: var(--muted); }
+.rbody { padding: 4px 16px 12px; border-top: 1px solid var(--line); }
+.rbody .rgrp {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); font-weight: 600; margin: 9px 0 3px;
+}
+.rbody .person { font-size: 13px; padding: 1px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.rbody .person .pc { font-weight: 600; }
+.rbody .person .ph { color: var(--muted); font: 11.5px ui-monospace, Menlo, monospace; }
+.rbody .person .pn { color: var(--muted); font-size: 12px; }
+.rbody a.goto {
+  display: inline-block; margin-top: 12px; text-decoration: none;
+  background: var(--gold); color: #1a1206; font-weight: 700; font-size: 12.5px;
+  padding: 6px 14px; border-radius: 7px; letter-spacing: .02em;
+}
+.rbody a.goto:hover { filter: brightness(1.08); }
 .guildhead { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
 .drange { color: var(--muted); font-size: 12.5px; display:inline-flex; align-items:center; gap:5px; }
 .drange input[type=date] { font: inherit; padding: 5px 8px; border-radius: 7px;
@@ -1200,16 +1219,63 @@ function render() {
     .sort((a, b) => (a.starts_at || Infinity) - (b.starts_at || Infinity) || a.id - b.id);
   $('#count').textContent = rows.length + ' raid' + (rows.length === 1 ? '' : 's');
   if (!rows.length) { list.appendChild(el('div', 'empty', 'nothing here')); return; }
-  for (const r of rows) {
-    const a = el('a', 'raidrow' + (isPast(r) ? ' past' : ''));
-    a.href = r.url;
-    const state = isPast(r) ? (r.state === 'cancelled' ? 'cancelled' : 'finished') : r.state;
-    a.appendChild(el('span', 'pill ' + (r.state === 'cancelled' ? 'cancelled' : (isPast(r) ? '' : 'open')), state));
-    a.appendChild(el('span', 't', '#' + r.id + '  ' + r.title));
-    a.appendChild(el('span', 'w', fmtWhen(r.starts_at)));
-    a.appendChild(el('span', 'c', r.accepted + ' accepted / ' + r.signups + ' signed up'));
-    list.appendChild(a);
+  for (const r of rows) list.appendChild(raidCard(r));
+}
+
+const ROLE_ORDER = [['tank', 'Tanks'], ['healer', 'Healers'],
+                    ['ranged', 'Ranged'], ['melee', 'Melee']];
+
+function raidCard(r) {
+  const card = el('div', 'raidrow' + (isPast(r) ? ' past' : ''));
+  const head = el('div', 'rhead');
+  const state = isPast(r) ? (r.state === 'cancelled' ? 'cancelled' : 'finished') : r.state;
+  head.append(
+    el('span', 'caret', '▸'),
+    el('span', 'pill ' + (r.state === 'cancelled' ? 'cancelled' : (isPast(r) ? '' : 'open')), state),
+    el('span', 't', '#' + r.id + '  ' + r.title),
+    el('span', 'w', fmtWhen(r.starts_at)),
+    el('span', 'c', r.accepted + ' accepted / ' + r.signups + ' signed up'),
+  );
+  head.addEventListener('click', () => {
+    const open = card.querySelector('.rbody');
+    if (open) { open.remove(); card.classList.remove('open'); }
+    else { card.appendChild(raidBody(r)); card.classList.add('open'); }
+  });
+  card.appendChild(head);
+  return card;
+}
+
+function personLine(p) {
+  const line = el('div', 'person');
+  line.appendChild(el('span', 'pc', p.character));
+  line.appendChild(el('span', 'ph', p.discord_name ? '@' + p.discord_name : ''));
+  if (p.note) line.appendChild(el('span', 'pn', '— ' + p.note));
+  return line;
+}
+
+function raidBody(r) {
+  const body = el('div', 'rbody');
+  const roster = r.roster || [];
+  const accepted = roster.filter((x) => x.status === 'accepted');
+  const backup = roster.filter((x) => x.status === 'bench');
+  let any = false;
+  for (const [key, label] of ROLE_ORDER) {
+    const people = accepted.filter((x) => x.role === key);
+    if (!people.length) continue;
+    any = true;
+    body.appendChild(el('div', 'rgrp', label + ' (' + people.length + ')'));
+    for (const p of people) body.appendChild(personLine(p));
   }
+  if (backup.length) {
+    any = true;
+    body.appendChild(el('div', 'rgrp', '⭐ Backup (' + backup.length + ')'));
+    for (const p of backup) body.appendChild(personLine(p));
+  }
+  if (!any) body.appendChild(el('div', 'empty', 'no active roster yet'));
+  const go = el('a', 'goto', 'GO TO RAID →');
+  go.href = r.url;
+  body.appendChild(go);
+  return body;
 }
 $('#q').addEventListener('input', (e) => { q = e.target.value; render(); });
 $('#from').addEventListener('change', (e) => { dFrom = e.target.value; render(); });

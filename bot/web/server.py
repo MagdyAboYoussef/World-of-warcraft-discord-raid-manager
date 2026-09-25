@@ -332,6 +332,21 @@ class RaidWebServer:
                 continue
             signups = store.signups(raid.id)
             accepted = sum(1 for x in signups if x.status is Status.ACCEPTED)
+            # A compact roster for the inline expand: the active roster and the
+            # backups, with their handle and note. Outs/absent/pending are left
+            # off - this is "who's in", not the full queue.
+            roster = []
+            for x in signups:
+                if x.status not in (Status.ACCEPTED, Status.BENCH):
+                    continue
+                spec = get_spec(x.spec_key)
+                roster.append({
+                    "role": spec.role.value if spec else None,
+                    "status": x.status.value,
+                    "character": x.character_name,
+                    "discord_name": x.discord_name,
+                    "note": x.note,
+                })
             rows.append({
                 "id": raid.id,
                 "title": raid.title,
@@ -340,6 +355,7 @@ class RaidWebServer:
                 "starts_at": raid.starts_at,
                 "accepted": accepted,
                 "signups": len(signups),
+                "roster": roster,
                 "url": f"{WEB_BASE_URL}/r/{tokens.issue(raid.id, claims.user_id)}",
             })
         name = getattr(guild, "name", f"server {claims.guild_id}")
