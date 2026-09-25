@@ -320,8 +320,27 @@ function recomputeNeeds() {
 }
 
 // The real client script is used verbatim; only the transport is faked.
+// A stand-in member directory so the reassign picker works in the preview too
+// (the live page searches the real server). Ids are fake.
+const PREVIEW_MEMBERS = [
+  { id: '900000000000000001', name: 'freshmeat', display: 'Fresh Meat' },
+  { id: '900000000000000002', name: 'benchwarmer2', display: 'Benchwarmer' },
+  { id: '900000000000000003', name: 'subhealer', display: 'Sub Healer' },
+  { id: '900000000000000004', name: 'randomdps', display: 'Random DPS' },
+  { id: '900000000000000005', name: 'lastminute', display: 'Last Minute' },
+];
+
 window.fetch = async (url, options) => {
   const path = String(url);
+  // GET /members?q= — type-ahead for the reassign picker
+  const mm = path.match(/\/members\?q=([^&]*)/);
+  if (mm) {
+    const q = decodeURIComponent(mm[1]).toLowerCase();
+    const members = q.length >= 2
+      ? PREVIEW_MEMBERS.filter((m) => m.name.includes(q) || m.display.toLowerCase().includes(q))
+      : [];
+    return { ok: true, status: 200, json: async () => ({ members }) };
+  }
   if (options && options.body) {
     const body = JSON.parse(options.body);
     const signup = STATE.signups.find((s) => s.user_id === body.user_id);
@@ -338,6 +357,14 @@ window.fetch = async (url, options) => {
         }
       } else if (path.endsWith('/remove')) {
         STATE.signups = STATE.signups.filter((s) => s !== signup);
+      } else if (path.endsWith('/character')) {
+        signup.character = body.character;
+      } else if (path.endsWith('/note')) {
+        signup.note = body.note || null;
+      } else if (path.endsWith('/reassign')) {
+        const m = PREVIEW_MEMBERS.find((x) => x.id === body.new_user_id);
+        signup.user_id = body.new_user_id;
+        if (m) signup.discord_name = m.name;
       }
     }
   }
