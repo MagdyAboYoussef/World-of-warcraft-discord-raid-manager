@@ -539,6 +539,13 @@ async def main() -> None:
     found = (await res.json())["members"]
     check("member search returns matches", res.status == 200 and len(found) >= 2, str(found))
     check("search is a substring match", any(m["name"] == "newcomer" for m in found))
+    mid = (await (await client.get(f"/r/{good}/members?q=omer")).json())["members"]
+    check("a mid-word substring also matches (substring search)",
+          any(m["name"] == "newcomer" for m in mid), str(mid))
+    res_at = await client.get(f"/r/{good}/members?q=@new")
+    check("a leading @ is ignored in the query",
+          {m["id"] for m in (await res_at.json())["members"]}
+          == {m["id"] for m in found})
     res = await client.get(f"/r/{good}/members?q=x")
     check("too-short query returns nothing", (await res.json())["members"] == [])
 

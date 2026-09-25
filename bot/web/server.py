@@ -381,7 +381,9 @@ class RaidWebServer:
             _claims, raid = await self._authorise(request)
         except _Denied as denied:
             return _json_error(denied)
-        q = (request.query.get("q") or "").strip().lower()
+        # Tolerate a leading "@": people type "@name" out of habit, but the
+        # member names being matched have no "@".
+        q = (request.query.get("q") or "").strip().lstrip("@").strip().lower()
         out: list[dict[str, str]] = []
         if len(q) >= 2:
             guild = self.bot.get_guild(raid.guild_id)
