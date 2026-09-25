@@ -1096,6 +1096,10 @@ a.raidrow .c { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 a.raidrow.past .t { color: var(--muted); }
 a.raidrow.hide { display: none; }
 .guildhead { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+.drange { color: var(--muted); font-size: 12.5px; display:inline-flex; align-items:center; gap:5px; }
+.drange input[type=date] { font: inherit; padding: 5px 8px; border-radius: 7px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line); color-scheme: dark; }
+.drange input[type=date]:focus { outline: none; border-color: var(--gold); }
 """
 
 GUILD_SCRIPT = """
@@ -1103,6 +1107,8 @@ const RAIDS = __RAIDS__;
 const NOW = Date.now() / 1000;
 let scope = 'upcoming';
 let q = '';
+let dFrom = '';
+let dTo = '';
 const $ = (s) => document.querySelector(s);
 
 function fmtWhen(ts) {
@@ -1118,14 +1124,29 @@ function el(tag, cls, text) {
   return n;
 }
 function isPast(r) { return r.finished || r.state === 'cancelled'; }
+// A raid falls in [from 00:00, to 23:59] (either bound optional). Undated raids
+// drop out once a range is set - there's no date to place them on.
+function inRange(r) {
+  if (!dFrom && !dTo) return true;
+  if (!r.starts_at) return false;
+  const lo = dFrom ? Date.parse(dFrom + 'T00:00:00') / 1000 : -Infinity;
+  const hi = dTo ? Date.parse(dTo + 'T23:59:59') / 1000 : Infinity;
+  return r.starts_at >= lo && r.starts_at <= hi;
+}
 
 function render() {
   const list = $('#list'); list.textContent = '';
   const needle = q.trim().toLowerCase();
+  const dated = !!(dFrom || dTo);
   const rows = RAIDS
-    .filter((r) => needle
-       ? ((r.title + ' ' + fmtWhen(r.starts_at)).toLowerCase().includes(needle))
-       : (scope === 'all' || (scope === 'past' ? isPast(r) : !isPast(r))))
+    .filter((r) => {
+      if (!inRange(r)) return false;
+      if (needle) return (r.title + ' ' + fmtWhen(r.starts_at)).toLowerCase().includes(needle);
+      // A date range answers "which raids in this window", so it overrides the
+      // Upcoming/Past scope; without a range, the scope buttons apply.
+      if (dated) return true;
+      return scope === 'all' || (scope === 'past' ? isPast(r) : !isPast(r));
+    })
     .sort((a, b) => (b.starts_at || 0) - (a.starts_at || 0) || b.id - a.id);
   $('#count').textContent = rows.length + ' raid' + (rows.length === 1 ? '' : 's');
   if (!rows.length) { list.appendChild(el('div', 'empty', 'nothing here')); return; }
@@ -1141,6 +1162,11 @@ function render() {
   }
 }
 $('#q').addEventListener('input', (e) => { q = e.target.value; render(); });
+$('#from').addEventListener('change', (e) => { dFrom = e.target.value; render(); });
+$('#to').addEventListener('change', (e) => { dTo = e.target.value; render(); });
+$('#clear-dates').addEventListener('click', () => {
+  dFrom = dTo = ''; $('#from').value = ''; $('#to').value = ''; render();
+});
 for (const [id, val] of [['#f-upcoming','upcoming'],['#f-past','past'],['#f-all','all']]) {
   $(id).addEventListener('click', () => {
     scope = val; q = ''; $('#q').value = '';
@@ -1175,6 +1201,9 @@ def render_guild_index(guild_name: str, rows: list, expires_at: int) -> web.Resp
     <input id="q" class="search" type="search" autocomplete="off"
            placeholder="Search a raid name or date…">
     <span class="grow"></span>
+    <label class="drange">from <input id="from" type="date"></label>
+    <label class="drange">to <input id="to" type="date"></label>
+    <button id="clear-dates" title="Clear the date range">clear</button>
   </div>
   <div class="rlist" id="list"></div>
 </div>
