@@ -90,18 +90,32 @@ class FakeGuild:
         self.id = GUILD
         self.name = "Test Guild <b>"  # angle brackets: must come out escaped
         self.owner_id = 999_000
-        self.members = {
+        self._by_id = {
             ADMIN: FakeMember(True, "raidlead", ADMIN),
             OUTSIDER: FakeMember(False, "randomer", OUTSIDER),
             # Holds Administrator, but only via a role the cache never saw.
             CACHE_MISS: FakeMember(False, "ghostadmin", CACHE_MISS, roles=(77,)),
         }
+        # Extra members for the reassign search (people who never signed up).
+        self._search_pool = [
+            FakeMember(True, "newcomer", 5101),
+            FakeMember(True, "newbie", 5102),
+            FakeMember(True, "totally_different", 5103),
+        ]
         self.fetches = 0
         self.role_fetches = 0
         self.roles = [FakeRole(1, "@everyone"), FakeRole(77, "Overlord", administrator=True)]
 
+    @property
+    def members(self):
+        # what the members intent gives: the full cached list, name-searchable
+        ms = list(self._by_id.values()) + self._search_pool
+        for m in ms:
+            m.display_name = m.name
+        return ms
+
     def get_member(self, user_id: int):
-        return None  # mirrors reality: this bot runs without the members intent
+        return None  # the admin path still fetches; reassign falls back to fetch_user
 
     async def fetch_roles(self):
         self.role_fetches += 1
@@ -109,7 +123,7 @@ class FakeGuild:
 
     async def fetch_member(self, user_id: int):
         self.fetches += 1
-        member = self.members.get(user_id)
+        member = self._by_id.get(user_id)
         if member is None:
             raise LookupError("no such member")
         return member
@@ -125,6 +139,9 @@ class FakeBot:
             RAIDER: FakeUser("tankadin"),
             RAIDER + 1: FakeUser("healbot"),
             RAIDER + 2: FakeUser("stabby"),
+            5101: FakeUser("newcomer"),
+            5102: FakeUser("newbie"),
+            5103: FakeUser("totally_different"),
         }
         self.user_fetches = 0
         self._ready = True  # tests flip this to exercise the warm-up window
@@ -201,6 +218,8 @@ async def main() -> None:
         aioweb.post("/r/{token}/spec", srv.handle_spec),
         aioweb.post("/r/{token}/character", srv.handle_character),
         aioweb.post("/r/{token}/note", srv.handle_note),
+        aioweb.get("/r/{token}/members", srv.handle_members),
+        aioweb.post("/r/{token}/reassign", srv.handle_reassign),
         aioweb.post("/r/{token}/remove", srv.handle_remove),
         aioweb.post("/r/{token}/refresh", srv.handle_refresh),
         aioweb.get("/overview/{key}", srv.handle_overview),
@@ -514,6 +533,33 @@ async def main() -> None:
           any(e.action == "note" for e in store.audit_entries(raid.id)))
     res = await client.post(f"/r/{good}/note", json={"user_id": str(RAIDER)})
     check("missing note field -> 400", res.status == 400, f"got {res.status}")
+
+    print("\n[5d3] member search + reassign a slot")
+    res = await client.get(f"/r/{good}/members?q=new")
+    found = (await res.json())["members"]
+    check("member search returns matches", res.status == 200 and len(found) >= 2, str(found))
+    check("search is a substring match", any(m["name"] == "newcomer" for m in found))
+    res = await client.get(f"/r/{good}/members?q=x")
+    check("too-short query returns nothing", (await res.json())["members"] == [])
+
+    before = store.get_signup(raid.id, RAIDER)
+    res = await client.post(f"/r/{good}/reassign",
+                            json={"user_id": str(RAIDER), "new_user_id": "5101"})
+    check("reassign succeeds", res.status == 200, f"got {res.status}")
+    check("old holder no longer on the raid", store.get_signup(raid.id, RAIDER) is None)
+    moved = store.get_signup(raid.id, 5101)
+    check("new holder keeps the same character/spec",
+          moved is not None and moved.character_name == before.character_name
+          and moved.spec_key == before.spec_key)
+    check("new holder handle recorded", moved.discord_name == "newcomer")
+    check("reassign attributed + logged",
+          moved.updated_by == ADMIN
+          and any(e.action == "reassign" for e in store.audit_entries(raid.id)))
+    res = await client.post(f"/r/{good}/reassign",
+                            json={"user_id": "5101", "new_user_id": str(RAIDER + 1)})
+    check("reassign onto an existing signup refused", res.status == 409, f"got {res.status}")
+    store.reassign_signup(raid.id, 5101, RAIDER, "tankadin", ADMIN)
+    store.set_character(raid.id, RAIDER, "Tankadin", None, ADMIN)
 
     print("\n[5e] manual board refresh")
     refresh_ok["value"] = True

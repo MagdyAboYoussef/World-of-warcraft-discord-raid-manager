@@ -219,6 +219,7 @@ AUDIT_ACTIONS: tuple[str, ...] = (
     "status",    # accepted / declined / benched / ...
     "spec",      # reassigned to another spec
     "character", # an admin corrected the character name / realm
+    "reassign",  # an admin moved a slot to a different Discord account
     "note",      # an admin edited a signup's note
     "remove",    # an admin took the signup off the raid
     "withdraw",  # the player took themselves off it
@@ -542,6 +543,26 @@ class Store:
             (status.value, int(time.time()), updated_by, raid_id, user_id),
         )
         return cur.rowcount > 0
+
+    def reassign_signup(
+        self, raid_id: int, old_user_id: int, new_user_id: int,
+        new_discord_name: str | None, updated_by: int | None,
+    ) -> str:
+        """Move a roster slot to a different Discord account.
+
+        Returns "conflict" if the target already has a signup here (the PK is
+        (raid_id, user_id), and two rows for one person make no sense),
+        "missing" if the original slot is gone, else "ok". The character/spec/
+        status ride along unchanged - only who holds the slot changes.
+        """
+        if self.get_signup(raid_id, new_user_id) is not None:
+            return "conflict"
+        cur = self.db.execute(
+            "UPDATE signups SET user_id=?, discord_name=?, updated_at=?, updated_by=?"
+            " WHERE raid_id=? AND user_id=?",
+            (new_user_id, new_discord_name, int(time.time()), updated_by, raid_id, old_user_id),
+        )
+        return "ok" if cur.rowcount else "missing"
 
     def set_character(
         self, raid_id: int, user_id: int, character_name: str,

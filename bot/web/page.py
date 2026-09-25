@@ -202,6 +202,13 @@ kbd {
   font: inherit; font-size: 13.5px; font-weight: 600;
 }
 .card input.nameedit:focus { outline: none; }
+.card .reassign { margin-top: 4px; }
+.card .reassign-list { display: flex; flex-direction: column; gap: 2px; margin-top: 3px; }
+.card .reassign-opt {
+  text-align: left; font-size: 12px; padding: 4px 7px; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--line); color: var(--text); cursor: pointer;
+}
+.card .reassign-opt:hover { border-color: var(--gold); background: var(--panel-2); }
 .card .spec:hover { color: var(--text); text-decoration: underline dotted; }
 .card .note.add { color: var(--muted); font-style: italic; opacity: .7; }
 .card .note.add:hover { opacity: 1; color: var(--gold); }
@@ -302,7 +309,7 @@ const SHORT = {
 // the server so an entry written by an older build still reads sensibly.
 const VERBS = {
   apply: 'signed up', status: 'set', spec: 'reassigned', remove: 'removed',
-  withdraw: 'withdrew', raid: 'changed the raid', character: 'renamed', note: 'noted',
+  withdraw: 'withdrew', raid: 'changed the raid', character: 'renamed', note: 'noted', reassign: 'reassigned to',
 };
 
 let state = null;
@@ -435,6 +442,43 @@ function noteEditor(signup, noteEl) {
   return box;
 }
 
+function reassignPicker(signup, handleEl) {
+  const wrap = el('div', 'reassign');
+  const input = el('input', 'nameedit');
+  input.type = 'text';
+  input.placeholder = 'Reassign to… type a Discord name';
+  const list = el('div', 'reassign-list');
+  wrap.append(input, list);
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') wrap.replaceWith(handleEl);
+  });
+  let timer;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { list.textContent = ''; return; }
+    timer = setTimeout(async () => {
+      let data;
+      try { data = await api('/members?q=' + encodeURIComponent(q)); }
+      catch (_) { return; }
+      list.textContent = '';
+      const found = (data && data.members) || [];
+      if (!found.length) { list.appendChild(el('div', 'empty', 'no match')); return; }
+      for (const m of found) {
+        const label = '@' + m.name + (m.display && m.display !== m.name ? '  (' + m.display + ')' : '');
+        const opt = el('button', 'reassign-opt', label);
+        opt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          mutate('/reassign', { user_id: signup.user_id, new_user_id: m.id });
+        });
+        list.appendChild(opt);
+      }
+    }, 220);
+  });
+  return wrap;
+}
+
 function nameEditor(signup) {
   const input = el('input');
   input.type = 'text';
@@ -515,8 +559,12 @@ function card(signup) {
   // account is not.
   const handle = el('div', 'handle',
     signup.discord_name ? '@' + signup.discord_name : 'id ' + signup.user_id);
-  handle.title = 'Discord ID ' + signup.user_id
-    + (signup.discord_name ? '' : ' — handle not resolved yet');
+  handle.title = 'Click to reassign this slot to another Discord member';
+  handle.style.cursor = 'pointer';
+  handle.addEventListener('click', () => {
+    if (box.querySelector('.reassign')) return;
+    handle.after(reassignPicker(signup, handle));
+  });
   box.append(name, spec, handle);
   who.appendChild(box);
 
@@ -1147,7 +1195,9 @@ function render() {
       if (dated) return true;
       return scope === 'all' || (scope === 'past' ? isPast(r) : !isPast(r));
     })
-    .sort((a, b) => (b.starts_at || 0) - (a.starts_at || 0) || b.id - a.id);
+    // Earliest raid time first (soonest upcoming at the top); undated raids
+    // sink to the bottom. Ordered by the raid's schedule, not when it was made.
+    .sort((a, b) => (a.starts_at || Infinity) - (b.starts_at || Infinity) || a.id - b.id);
   $('#count').textContent = rows.length + ' raid' + (rows.length === 1 ? '' : 's');
   if (!rows.length) { list.appendChild(el('div', 'empty', 'nothing here')); return; }
   for (const r of rows) {

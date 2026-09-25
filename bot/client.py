@@ -25,6 +25,12 @@ from .web.server import RaidWebServer
 log = logging.getLogger(__name__)
 
 
+def _intents() -> discord.Intents:
+    intents = discord.Intents.default()
+    intents.members = True
+    return intents
+
+
 def gateway_is_stale(
     connected: bool, down_since: float | None, now: float, threshold: float
 ) -> bool:
@@ -43,9 +49,11 @@ class RaidClient(commands.Bot):
     def __init__(self) -> None:
         super().__init__(
             command_prefix=commands.when_mentioned,
-            # Signups are entirely slash-command and component driven, so no
-            # privileged intents are needed.
-            intents=discord.Intents.default(),
+            # The members intent is enabled so the web manager can resolve every
+            # signer's Discord handle from cache and offer a member picker for
+            # reassigning a slot. It is privileged; it must also be toggled on in
+            # the Developer Portal or the gateway refuses the connection.
+            intents=_intents(),
             help_command=None,
             # Defence in depth: no message this bot ever sends can ping @everyone
             # or a role, whatever ends up in a raid title or description.

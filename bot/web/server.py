@@ -146,6 +146,8 @@ class RaidWebServer:
                 web.post("/r/{token}/spec", self.handle_spec),
                 web.post("/r/{token}/character", self.handle_character),
                 web.post("/r/{token}/note", self.handle_note),
+                web.get("/r/{token}/members", self.handle_members),
+                web.post("/r/{token}/reassign", self.handle_reassign),
                 web.post("/r/{token}/remove", self.handle_remove),
                 web.post("/r/{token}/refresh", self.handle_refresh),
             ]
@@ -370,6 +372,82 @@ class RaidWebServer:
 
     async def handle_note(self, request: web.Request) -> web.Response:
         return await self._mutate(request, self._apply_note)
+
+    async def handle_members(self, request: web.Request) -> web.Response:
+        """Type-ahead for the reassign picker: members of this raid's server
+        whose name or nickname contains the query. Served from the members-intent
+        cache, so it is instant and needs no per-keystroke API call."""
+        try:
+            _claims, raid = await self._authorise(request)
+        except _Denied as denied:
+            return _json_error(denied)
+        q = (request.query.get("q") or "").strip().lower()
+        out: list[dict[str, str]] = []
+        if len(q) >= 2:
+            guild = self.bot.get_guild(raid.guild_id)
+            if guild is not None:
+                seen = 0
+                for m in guild.members:
+                    name, nick = m.name.lower(), (m.display_name or "").lower()
+                    if q in name or q in nick:
+                        out.append({"id": str(m.id), "name": m.name,
+                                    "display": m.display_name})
+                        seen += 1
+                        if seen >= 10:
+                            break
+                out.sort(key=lambda x: x["name"].lower())
+        return _secure(web.json_response({"members": out}))
+
+    async def handle_reassign(self, request: web.Request) -> web.Response:
+        """Move a roster slot to a different Discord account (even one that
+        never signed up). The character/spec/status stay; only who holds the
+        slot - and thus who the board @mentions - changes."""
+        try:
+            claims, raid = await self._authorise(request)
+            try:
+                body = await request.json()
+            except Exception:
+                raise _Denied(400, "Malformed request body.")
+            signup = self._target(raid, body)
+            raw = body.get("new_user_id")
+            if not isinstance(raw, str) or not raw.isdigit():
+                raise _Denied(400, "Missing or malformed new_user_id.")
+            new_uid = int(raw)
+            if new_uid == signup.user_id:
+                raise _Denied(400, "That slot is already held by this person.")
+            if self.bot.store.get_signup(raid.id, new_uid) is not None:
+                raise _Denied(409, "That person already has a signup on this raid.")
+            # Resolve the target's handle for the mention/label.
+            guild = self.bot.get_guild(raid.guild_id)
+            member = guild.get_member(new_uid) if guild is not None else None
+            if member is None:
+                try:
+                    member = await self.bot.fetch_user(new_uid)
+                except Exception:
+                    member = None
+            handle = getattr(member, "name", "") or ""
+            if handle:
+                self._handles[new_uid] = handle
+            old_label = signup.discord_name or str(signup.user_id)
+            result = self.bot.store.reassign_signup(
+                raid.id, signup.user_id, new_uid, handle or None, claims.user_id
+            )
+            if result == "conflict":
+                raise _Denied(409, "That person already has a signup on this raid.")
+            if result != "ok":
+                raise _Denied(404, "That signup is no longer on the raid.")
+            self.bot.store.record_audit(
+                raid_id=raid.id, action="reassign", source="web",
+                actor_id=claims.user_id, actor_name=self._handles.get(claims.user_id) or None,
+                target_id=new_uid, target_name=handle or None,
+                detail=f"{signup.character_name}: @{old_label} -> @{handle or new_uid}",
+            )
+            log.info("raid #%s: web user %s reassigned %s -> %s (%s)",
+                     raid.id, claims.user_id, signup.user_id, new_uid, signup.character_name)
+        except _Denied as denied:
+            return _json_error(denied)
+        request_raid_refresh(self.bot, raid.id)
+        return _secure(web.json_response(await self._state(raid, claims)))
 
     async def handle_remove(self, request: web.Request) -> web.Response:
         return await self._mutate(request, self._apply_remove)
