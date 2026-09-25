@@ -323,7 +323,7 @@ async def main() -> None:
           "snowflakes lose precision as JS numbers")
     check("all signups present", len(state["signups"]) == 3)
     check("four role columns", [r["key"] for r in state["roles"]]
-          == ["tank", "healer", "melee", "ranged"])
+          == ["tank", "healer", "ranged", "melee"])
     check("nothing accepted yet", all(r["accepted"] == 0 for r in state["roles"]))
     check("no buffs covered yet", all(not b["covered"] for b in state["buffs"]))
     check("every buff carries an icon", all(b["icon"] for b in state["buffs"]))

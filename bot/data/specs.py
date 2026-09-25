@@ -37,7 +37,7 @@ class Role(str, Enum):
 
 
 # Role display order everywhere in the bot.
-ROLE_ORDER: tuple[Role, ...] = (Role.TANK, Role.HEALER, Role.MELEE, Role.RANGED)
+ROLE_ORDER: tuple[Role, ...] = (Role.TANK, Role.HEALER, Role.RANGED, Role.MELEE)
 
 #: Roles whose icon ships with the bot instead of being downloaded, as PNGs
 #: under assets/role_icons/. Vendored deliberately: these came from cache URLs
