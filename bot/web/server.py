@@ -706,7 +706,7 @@ class RaidWebServer:
             from datetime import datetime
             from zoneinfo import ZoneInfo
             local = datetime.fromtimestamp(raid.starts_at, ZoneInfo(resolve_timezone(raid.timezone)))
-            when = local.strftime("%a %H:%M").upper()
+            when = local.strftime("%a %H:%M %d/%m/%Y").upper()
         export = roster_export(signups, when=when, note=raid.admin_note)
 
         return {

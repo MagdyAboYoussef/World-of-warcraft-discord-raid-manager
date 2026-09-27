@@ -764,9 +764,11 @@ function renderRoster() {
 function raidNoteEditor() {
   const box = el('textarea', 'raidnote-edit');
   box.value = state.raid.admin_note || '';
-  box.placeholder = 'Raid note — shown in the UI and export (blank clears it)';
+  box.placeholder = 'Raid note — saves when you click away (blank clears it)';
   box.rows = 2;
   box.maxLength = 300;
+  // Saves on blur (click away). Guard against a refresh/navigation eating the
+  // edit before blur fires by flushing on pagehide too.
   let done = false;
   const commit = () => {
     if (done) return;
