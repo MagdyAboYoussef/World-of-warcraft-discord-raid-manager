@@ -673,16 +673,8 @@ class RaidWebServer:
         # let them disagree.
         buffs = evaluate_buffs(accepted_specs)
 
-        # Export string uses server nicknames, which the members intent caches.
-        guild = self.bot.get_guild(raid.guild_id)
-
-        def _display(uid: int):
-            member = guild.get_member(uid) if guild is not None else None
-            return getattr(member, "display_name", None)
-
-        export = roster_export(
-            [s for s in signups if s.status is Status.ACCEPTED], _display
-        )
+        # Export lines carry the numeric mention + character name.
+        export = roster_export([s for s in signups if s.status is Status.ACCEPTED])
 
         return {
             "raid": {

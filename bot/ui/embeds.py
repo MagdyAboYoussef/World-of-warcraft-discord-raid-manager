@@ -86,13 +86,13 @@ _EXPORT_CLASS = {
 }
 
 
-def roster_export(accepted: list[Signup], display_of) -> str:
-    """The active roster as :role::CLASS:@name lines, tanks then heals then dps.
+def roster_export(accepted: list[Signup]) -> str:
+    """The active roster as :role::CLASS:<@id> Character lines.
 
-    `display_of(user_id)` returns the member's server display name (nickname),
-    which is what the sample uses (e.g. "@|Elite| Life"); it falls back to the
-    stored handle, then the id. A signup's note, if any, is appended after the
-    name. Order within a group matches the board: by class, then character name.
+    Uses the numeric mention <@id> - which resolves to the person (and pings)
+    when pasted into Discord - followed by the in-game character name, then the
+    note if any. Tanks, then heals, then dps; within a group, by class then
+    character name.
     """
     buckets: dict[str, list[Signup]] = {"tank": [], "heal": [], "dps": []}
     for s in accepted:
@@ -113,10 +113,9 @@ def roster_export(accepted: list[Signup], display_of) -> str:
             spec = _spec_of(s)
             role_tag = _EXPORT_ROLE[spec.role]
             class_tag = _EXPORT_CLASS.get(spec.wow_class, spec.wow_class.upper())
-            name = display_of(s.user_id) or s.discord_name or str(s.user_id)
-            line = f":{role_tag}::{class_tag}:@{name}"
+            line = f":{role_tag}::{class_tag}:<@{s.user_id}> {s.character_name}"
             if s.note:
-                line += f" \u2014 {s.note}"   # append the note after the name
+                line += f" \u2014 {s.note}"   # append the note after the character
             lines.append(line)
     return "\n".join(lines)
 
