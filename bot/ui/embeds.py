@@ -86,36 +86,58 @@ _EXPORT_CLASS = {
 }
 
 
-def roster_export(accepted: list[Signup]) -> str:
-    """The active roster as :role::CLASS:<@id> Character lines.
+#: Export groups in order, each with (header, bucket key). Accepted split into
+#: tank/heal/dps; helpers and loot bodies are their own groups.
+_EXPORT_GROUPS = (
+    ("Tanks", "tank"), ("Healers", "heal"), ("DPS", "dps"),
+    ("Helpers", "helper"), ("Loot bodies", "loot"),
+)
+_EXPORT_ROLE_TAG = {
+    "tank": "tank~3", "heal": "heal", "dps": "dps~1", "helper": "helper", "loot": "loot",
+}
 
-    Uses the numeric mention <@id> - which resolves to the person (and pings)
-    when pasted into Discord - followed by the in-game character name, then the
-    note if any. Tanks, then heals, then dps; within a group, by class then
-    character name.
+
+def roster_export(signups: list[Signup]) -> str:
+    """The roster as grouped :role::CLASS:<@id> Character lines.
+
+    A header line (Tanks / Healers / DPS / Helpers / Loot bodies) precedes each
+    non-empty group. Accepted signups split into tank/heal/dps by spec; helpers
+    and loot bodies form their own groups. The numeric mention <@id> resolves to
+    the person (and pings) when pasted into Discord; the note, if any, follows
+    the character. Within a group: by class, then character name.
     """
-    buckets: dict[str, list[Signup]] = {"tank": [], "heal": [], "dps": []}
-    for s in accepted:
-        spec = _spec_of(s)
-        if spec is None:
+    buckets: dict[str, list[Signup]] = {k: [] for _, k in _EXPORT_GROUPS}
+    for s in signups:
+        if s.status is Status.HELPER:
+            key = "helper"
+        elif s.status is Status.LOOT_BODY:
+            key = "loot"
+        elif s.status is Status.ACCEPTED:
+            spec = _spec_of(s)
+            if spec is None:
+                continue
+            key = ("tank" if spec.role is Role.TANK
+                   else "heal" if spec.role is Role.HEALER else "dps")
+        else:
             continue
-        key = ("tank" if spec.role is Role.TANK
-               else "heal" if spec.role is Role.HEALER else "dps")
         buckets[key].append(s)
 
     lines: list[str] = []
-    for key in ("tank", "heal", "dps"):
+    for header, key in _EXPORT_GROUPS:
         group = sorted(buckets[key], key=lambda x: (
             (_spec_of(x).wow_class if _spec_of(x) else "").casefold(),
             x.character_name.casefold(),
         ))
+        if not group:
+            continue
+        lines.append(header)
         for s in group:
             spec = _spec_of(s)
-            role_tag = _EXPORT_ROLE[spec.role]
-            class_tag = _EXPORT_CLASS.get(spec.wow_class, spec.wow_class.upper())
+            role_tag = _EXPORT_ROLE_TAG[key]
+            class_tag = _EXPORT_CLASS.get(spec.wow_class, spec.wow_class.upper()) if spec else "?"
             line = f":{role_tag}::{class_tag}:<@{s.user_id}> {s.character_name}"
             if s.note:
-                line += f" \u2014 {s.note}"   # append the note after the character
+                line += f" \u2014 {s.note}"
             lines.append(line)
     return "\n".join(lines)
 

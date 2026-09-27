@@ -284,6 +284,7 @@ kbd {
   padding: 10px 16px; border-radius: 8px; font-size: 13.5px;
   opacity: 0; pointer-events: none; transition: opacity .18s; max-width: 90vw;
 }
+#toast.ok { background: #12251a; border-color: #1f5133; color: #b9f0cf; }
 #toast.show { opacity: 1; }
 
 .center { max-width: 520px; margin: 18vh auto; text-align: center; padding: 0 20px; }
@@ -356,9 +357,10 @@ function byClassThenName(a, b) {
       || a.character.localeCompare(b.character);
 }
 
-function toast(message) {
+function toast(message, ok) {
   const el = $('#toast');
   el.textContent = message;
+  el.classList.toggle('ok', !!ok);   // green for a success, red otherwise
   el.classList.add('show');
   clearTimeout(el._t);
   el._t = setTimeout(() => el.classList.remove('show'), 4200);
@@ -977,7 +979,7 @@ $('#export').addEventListener('click', async () => {
   if (!text) { toast('No accepted roster to export yet.'); return; }
   try {
     await navigator.clipboard.writeText(text);
-    toast('Active roster copied — paste it wherever you need the export.');
+    toast('Active roster copied — paste it wherever you need the export.', true);
   } catch (_) {
     toast('Copy blocked by the browser — long-press/select the text to copy.');
   }
@@ -1278,6 +1280,8 @@ function raidBody(r) {
   const roster = r.roster || [];
   const accepted = roster.filter((x) => x.status === 'accepted');
   const backup = roster.filter((x) => x.status === 'bench');
+  const helpers = roster.filter((x) => x.status === 'helper');
+  const loot = roster.filter((x) => x.status === 'loot_body');
   let any = false;
   for (const [key, label] of ROLE_ORDER) {
     const people = accepted.filter((x) => x.role === key);
@@ -1286,10 +1290,12 @@ function raidBody(r) {
     body.appendChild(el('div', 'rgrp', label + ' (' + people.length + ')'));
     for (const p of people) body.appendChild(personLine(p));
   }
-  if (backup.length) {
+  const extra = [['⭐ Backup', backup], ['🤝 Helper', helpers], ['💰 Loot body', loot]];
+  for (const [label, group] of extra) {
+    if (!group.length) continue;
     any = true;
-    body.appendChild(el('div', 'rgrp', '⭐ Backup (' + backup.length + ')'));
-    for (const p of backup) body.appendChild(personLine(p));
+    body.appendChild(el('div', 'rgrp', label + ' (' + group.length + ')'));
+    for (const p of group) body.appendChild(personLine(p));
   }
   if (!any) body.appendChild(el('div', 'empty', 'no active roster yet'));
   const go = el('a', 'goto', 'GO TO RAID →');

@@ -842,30 +842,34 @@ with tempfile.TemporaryDirectory() as _tmp:
           any(n.startswith("🛡️ Tanks (1/2)") for n in _names))  # only the accepted paladin
     _st.close()
 
-print("\n[7n] roster export string")
+print("\n[7n] roster export string (grouped, with headers)")
 from bot.ui.embeds import roster_export as _rex
 from bot.store import Signup as _S
-def _sg(uid, ch, spec, note=None):
+def _sg(uid, ch, spec, st=Status.ACCEPTED, note=None):
     return _S(raid_id=1,user_id=uid,character_name=ch,logs_url=None,spec_key=spec,
-              status=Status.ACCEPTED,note=note,updated_at=0,updated_by=None,discord_name=None)
-_acc=[_sg(11,"Warry-Kazzak","warr_prot","tanking left"),
+              status=st,note=note,updated_at=0,updated_by=None,discord_name=None)
+_acc=[_sg(11,"Warry-Kazzak","warr_prot",note="tanking left"),
       _sg(12,"Bloody-Kazzak","dk_blood"),
       _sg(13,"Lifey-Kazzak","priest_holy"),
-      _sg(14,"Devy-Draenor","dh_devourer","10m late"),
-      _sg(15,"Stabby-Kazzak","rogue_sub")]
-_out=_rex(_acc).split("\n")
-# tanks [DK, Warrior] then heal [Priest] then dps [DemonHunter, Rogue]
-check("tanks first, then heals, then dps",
-      _out[0].startswith(":tank~3:") and _out[2].startswith(":heal:") and _out[3].startswith(":dps~1:"),
-      str(_out))
-check("line is :role::CLASS:<@id> Character",
-      _out[0] == ":tank~3::DK:<@12> Bloody-Kazzak", _out[0])
-check("uses the numeric mention <@id>", all("<@" in l for l in _out))
-check("includes the character name", "Lifey-Kazzak" in _out[2])
-check("demon hunter maps to DemonHunter", any(":DemonHunter:" in l for l in _out))
+      _sg(14,"Boomy-Kazzak","mage_frost"),
+      _sg(15,"Helpy-Kazzak","monk_mw",Status.HELPER),
+      _sg(16,"Looty-Kazzak","rogue_sub",Status.LOOT_BODY),
+      _sg(17,"Nope-Kazzak","dk_frost",Status.DECLINED)]
+_out=_rex(_acc)
+_lines=_out.split("\n")
+check("has a Tanks header", "Tanks" in _lines)
+check("has Healers/DPS/Helpers/Loot bodies headers",
+      all(h in _lines for h in ("Healers","DPS","Helpers","Loot bodies")), str(_lines))
+check("group order is tanks, heals, dps, helpers, loot bodies",
+      [l for l in _lines if not l.startswith(":")] == ["Tanks","Healers","DPS","Helpers","Loot bodies"])
+check("a person line is :role::CLASS:<@id> Character",
+      ":tank~3::DK:<@12> Bloody-Kazzak" in _lines)
+check("helpers use the helper tag", ":helper::MONK:<@15> Helpy-Kazzak" in _lines)
+check("loot bodies use the loot tag", ":loot::ROGUE:<@16> Looty-Kazzak" in _lines)
+check("declined is excluded from the export", "Nope-Kazzak" not in _out)
 check("a note is appended after the character",
-      _out[1] == ":tank~3::WARR:<@11> Warry-Kazzak \u2014 tanking left", _out[1])
-check("a note-less line has no trailing dash", _out[2] == ":heal::PRIEST:<@13> Lifey-Kazzak")
+      ":tank~3::WARR:<@11> Warry-Kazzak \u2014 tanking left" in _lines)
+check("uses numeric mentions that ping", _out.count("<@") == 6)
 
 print("\n[7l] @mention on the accepted roster (label, never a ping)")
 from bot.ui.embeds import _roster_line as _rl

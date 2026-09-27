@@ -338,7 +338,8 @@ class RaidWebServer:
             # off - this is "who's in", not the full queue.
             roster = []
             for x in signups:
-                if x.status not in (Status.ACCEPTED, Status.BENCH):
+                if x.status not in (Status.ACCEPTED, Status.BENCH,
+                                    Status.HELPER, Status.LOOT_BODY):
                     continue
                 spec = get_spec(x.spec_key)
                 roster.append({
@@ -673,8 +674,9 @@ class RaidWebServer:
         # let them disagree.
         buffs = evaluate_buffs(accepted_specs)
 
-        # Export lines carry the numeric mention + character name.
-        export = roster_export([s for s in signups if s.status is Status.ACCEPTED])
+        # Export lines carry the numeric mention + character name, grouped by
+        # role, plus helpers and loot bodies.
+        export = roster_export(signups)
 
         return {
             "raid": {
