@@ -20,7 +20,8 @@ from typing import TYPE_CHECKING, Any, cast
 from aiohttp import web
 
 from ..config import (
-    ADMIN_ROLE_NAMES, WEB_BASE_URL, WEB_BIND, WEB_ENABLED, WEB_PORT, region_label,
+    ADMIN_ROLE_NAMES, WEB_BASE_URL, WEB_BIND, WEB_ENABLED, WEB_PORT,
+    region_label, resolve_timezone,
 )
 from ..data import targets as targets_data
 from ..data.buffs import evaluate as evaluate_buffs
@@ -147,6 +148,7 @@ class RaidWebServer:
                 web.post("/r/{token}/spec", self.handle_spec),
                 web.post("/r/{token}/character", self.handle_character),
                 web.post("/r/{token}/note", self.handle_note),
+                web.post("/r/{token}/raidnote", self.handle_raidnote),
                 web.get("/r/{token}/members", self.handle_members),
                 web.post("/r/{token}/reassign", self.handle_reassign),
                 web.post("/r/{token}/remove", self.handle_remove),
@@ -390,6 +392,29 @@ class RaidWebServer:
 
     async def handle_note(self, request: web.Request) -> web.Response:
         return await self._mutate(request, self._apply_note)
+
+    async def handle_raidnote(self, request: web.Request) -> web.Response:
+        """Set the UI/export-only raid note. Not on the board, so no refresh."""
+        try:
+            claims, raid = await self._authorise(request)
+            try:
+                body = await request.json()
+            except Exception:
+                raise _Denied(400, "Malformed request body.")
+            raw = body.get("note")
+            if not isinstance(raw, str):
+                raise _Denied(400, "Missing note.")
+            note = raw.strip()[:300] or None
+            self.bot.store.set_admin_note(raid.id, note)
+            self.bot.store.record_audit(
+                raid_id=raid.id, action="raid", source="web",
+                actor_id=claims.user_id, actor_name=self._handles.get(claims.user_id) or None,
+                detail="raid note " + ("cleared" if note is None else "updated"),
+            )
+            raid = self.bot.store.get_raid(raid.id)  # re-read so the reply carries the new note
+        except _Denied as denied:
+            return _json_error(denied)
+        return _secure(web.json_response(await self._state(raid, claims)))
 
     async def handle_members(self, request: web.Request) -> web.Response:
         """Type-ahead for the reassign picker: members of this raid's server
@@ -674,9 +699,15 @@ class RaidWebServer:
         # let them disagree.
         buffs = evaluate_buffs(accepted_specs)
 
-        # Export lines carry the numeric mention + character name, grouped by
-        # role, plus helpers and loot bodies.
-        export = roster_export(signups)
+        # Export: raid time (e.g. "SUN 19:00") + admin note, then the grouped
+        # roster with helpers and loot bodies.
+        when = None
+        if raid.starts_at is not None:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            local = datetime.fromtimestamp(raid.starts_at, ZoneInfo(resolve_timezone(raid.timezone)))
+            when = local.strftime("%a %H:%M").upper()
+        export = roster_export(signups, when=when, note=raid.admin_note)
 
         return {
             "raid": {
@@ -689,6 +720,7 @@ class RaidWebServer:
                 "starts_at": raid.starts_at,
                 "duration_minutes": raid.duration_minutes,
                 "region": region_label(raid.timezone),
+                "admin_note": raid.admin_note,
                 "expires_at": page_expires_at(raid),
             },
             # Always all four: the roster stays split by role even when the

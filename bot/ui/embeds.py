@@ -97,7 +97,8 @@ _EXPORT_ROLE_TAG = {
 }
 
 
-def roster_export(signups: list[Signup]) -> str:
+def roster_export(signups: list[Signup], when: str | None = None,
+                  note: str | None = None) -> str:
     """The roster as grouped :role::CLASS:<@id> Character lines.
 
     A header line (Tanks / Healers / DPS / Helpers / Loot bodies) precedes each
@@ -106,6 +107,12 @@ def roster_export(signups: list[Signup]) -> str:
     the person (and pings) when pasted into Discord; the note, if any, follows
     the character. Within a group: by class, then character name.
     """
+    lines_head: list[str] = []
+    if when:
+        lines_head.append(when)   # e.g. "SUN 19:00"
+    if note:
+        lines_head.append(note)   # the admin raid note
+
     buckets: dict[str, list[Signup]] = {k: [] for _, k in _EXPORT_GROUPS}
     for s in signups:
         if s.status is Status.HELPER:
@@ -122,7 +129,7 @@ def roster_export(signups: list[Signup]) -> str:
             continue
         buckets[key].append(s)
 
-    lines: list[str] = []
+    lines: list[str] = list(lines_head)
     for header, key in _EXPORT_GROUPS:
         group = sorted(buckets[key], key=lambda x: (
             (_spec_of(x).wow_class if _spec_of(x) else "").casefold(),

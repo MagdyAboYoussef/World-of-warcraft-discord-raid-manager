@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS raids (
     state       TEXT NOT NULL DEFAULT 'open',
     auto_accept INTEGER NOT NULL DEFAULT 0,
     board_closed_at INTEGER,
+    admin_note  TEXT,
     caps        TEXT NOT NULL,
     created_at  INTEGER NOT NULL
 );
@@ -182,6 +183,9 @@ class Raid:
     #: When the board was last re-rendered *because* the raid closed. NULL means
     #: that final render still owes to happen - see ReminderTask.
     board_closed_at: int | None = None
+    #: A free-text raid note an admin sets. Shown only on the manager page and
+    #: in the export string - never on the public board (that is `description`).
+    admin_note: str | None = None
 
 
 @dataclass(slots=True)
@@ -295,6 +299,8 @@ class Store:
             )
         if "board_closed_at" not in columns:
             self.db.execute("ALTER TABLE raids ADD COLUMN board_closed_at INTEGER")
+        if "admin_note" not in columns:
+            self.db.execute("ALTER TABLE raids ADD COLUMN admin_note TEXT")
 
         signup_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(signups)")}
         if "discord_name" not in signup_columns:
@@ -423,6 +429,10 @@ class Store:
         self.db.execute(
             "UPDATE raids SET auto_accept=? WHERE id=?", (int(enabled), raid_id)
         )
+
+    def set_admin_note(self, raid_id: int, note: str | None) -> None:
+        """The UI/export-only raid note. Not the board description."""
+        self.db.execute("UPDATE raids SET admin_note=? WHERE id=?", (note, raid_id))
 
     def set_caps(self, raid_id: int, caps: dict[str, int]) -> None:
         self.db.execute("UPDATE raids SET caps=? WHERE id=?", (json.dumps(caps), raid_id))

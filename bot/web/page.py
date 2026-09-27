@@ -38,6 +38,21 @@ a { color: var(--gold); }
   font-size: 13px; letter-spacing: .02em;
 }
 
+.raidnote { margin-top: 6px; max-width: 640px; }
+.raidnote .rnote {
+  font-size: 13px; color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--line); border-left: 3px solid var(--gold);
+  border-radius: 6px; padding: 5px 9px; cursor: pointer; white-space: pre-wrap; word-break: break-word;
+}
+.raidnote .rnote.add { color: var(--muted); font-style: italic; border-left-color: var(--line); }
+.raidnote .rnote:hover { border-color: #3a4553; }
+.raidnote textarea.raidnote-edit {
+  width: 100%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--gold); border-radius: 6px; padding: 6px 8px;
+  font: inherit; font-size: 13px; resize: vertical;
+}
+.raidnote textarea.raidnote-edit:focus { outline: none; }
+
 header.top {
   display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
   justify-content: space-between; margin-bottom: 18px;
@@ -746,6 +761,28 @@ function renderRoster() {
   }
 }
 
+function raidNoteEditor() {
+  const box = el('textarea', 'raidnote-edit');
+  box.value = state.raid.admin_note || '';
+  box.placeholder = 'Raid note — shown in the UI and export (blank clears it)';
+  box.rows = 2;
+  box.maxLength = 300;
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const value = box.value.trim();
+    if (value === (state.raid.admin_note || '')) { renderHeader(); return; }
+    mutate('/raidnote', { note: value });
+  };
+  box.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { done = true; renderHeader(); }
+  });
+  box.addEventListener('blur', commit);
+  return box;
+}
+
 function renderHeader() {
   const raid = state.raid;
   $('#title').textContent = raid.title;
@@ -763,6 +800,17 @@ function renderHeader() {
     const badge = el('span', 'pill open', '\u26a1 auto-accept');
     badge.title = 'New applications are accepted immediately';
     meta.appendChild(badge);
+  }
+
+  // Raid note: shown here and in the export, never on the Discord board.
+  const rn = $('#raidnote');
+  if (!rn.querySelector('textarea')) {
+    rn.textContent = '';
+    const note = raid.admin_note;
+    const view = el('div', note ? 'rnote' : 'rnote add', note || '+ add raid note');
+    view.title = 'Admin note — shown here and in the copy-export, not on the board';
+    view.addEventListener('click', () => { view.replaceWith(raidNoteEditor()); });
+    rn.appendChild(view);
   }
 
   const counts = {};
@@ -1081,6 +1129,7 @@ BODY = """
     <div>
       <h1 id="title">{title}</h1>
       <div class="meta" id="meta"></div>
+      <div id="raidnote" class="raidnote"></div>
     </div>
     <div class="meta" id="counts"></div>
   </header>

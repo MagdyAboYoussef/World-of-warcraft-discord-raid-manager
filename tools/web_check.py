@@ -218,6 +218,7 @@ async def main() -> None:
         aioweb.post("/r/{token}/spec", srv.handle_spec),
         aioweb.post("/r/{token}/character", srv.handle_character),
         aioweb.post("/r/{token}/note", srv.handle_note),
+        aioweb.post("/r/{token}/raidnote", srv.handle_raidnote),
         aioweb.get("/r/{token}/members", srv.handle_members),
         aioweb.post("/r/{token}/reassign", srv.handle_reassign),
         aioweb.post("/r/{token}/remove", srv.handle_remove),
@@ -567,6 +568,20 @@ async def main() -> None:
     check("reassign onto an existing signup refused", res.status == 409, f"got {res.status}")
     store.reassign_signup(raid.id, 5101, RAIDER, "tankadin", ADMIN)
     store.set_character(raid.id, RAIDER, "Tankadin", None, ADMIN)
+
+    print("\n[5g] raid note (UI + export only)")
+    res = await client.post(f"/r/{good}/raidnote", json={"note": "  invites 18:45  "})
+    st2 = await res.json()
+    check("raid note set (trimmed)", res.status == 200 and st2["raid"]["admin_note"] == "invites 18:45")
+    check("raid note reaches the export header", st2["export"].startswith("invites 18:45")
+          or "invites 18:45" in st2["export"].split("\n")[:2])
+    check("raid note is in /state", store.get_raid(raid.id).admin_note == "invites 18:45")
+    check("raid note edit is logged (raid action)",
+          any(e.action == "raid" and "note" in (e.detail or "") for e in store.audit_entries(raid.id)))
+    res = await client.post(f"/r/{good}/raidnote", json={"note": ""})
+    check("empty clears the raid note", (await res.json())["raid"]["admin_note"] is None)
+    res = await client.post(f"/r/{good}/raidnote", json={})
+    check("missing note -> 400", res.status == 400)
 
     print("\n[5e] manual board refresh")
     refresh_ok["value"] = True
