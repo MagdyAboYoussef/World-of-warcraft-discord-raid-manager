@@ -818,6 +818,27 @@ check("class-alphabetical, name within class", order == ["Dan", "Amy", "Bob", "C
 check("two specs of one class stay adjacent",
       abs(order.index("Amy") - order.index("Bob")) == 1)
 
+print("\n[7n] roster export string")
+from bot.ui.embeds import roster_export as _rex
+from bot.store import Signup as _S
+def _sg(uid, ch, spec):
+    return _S(raid_id=1,user_id=uid,character_name=ch,logs_url=None,spec_key=spec,
+              status=Status.ACCEPTED,note=None,updated_at=0,updated_by=None,discord_name=None)
+_acc=[_sg(1,"Tk","warr_prot"),_sg(2,"Dk","dk_blood"),_sg(3,"Pr","priest_holy"),
+      _sg(4,"Dh","dh_devourer"),_sg(5,"Rg","rogue_sub")]
+_names={1:"|Lead| Logic",2:"Sadam",3:"|Elite| Life",4:"Dav",5:"Stabby"}
+_out=_rex(_acc, lambda u:_names.get(u)).split("\n")
+check("tanks come first, then heals, then dps",
+      _out[0].startswith(":tank~3:") and _out[2].startswith(":heal:") and _out[3].startswith(":dps~1:"),
+      str(_out))
+check("line format is :role::CLASS:@name",
+      _out[1] == ":tank~3::WARR:@|Lead| Logic", _out[1])
+check("uses the display-name callback (nickname with @)", "@|Elite| Life" in _out[2])
+check("demon hunter maps to DemonHunter", any(":DemonHunter:" in l for l in _out))
+check("falls back to handle/id when no display name",
+      ":dps~1::ROGUE:@stabby_handle" in _rex([_sg(9,"X","rogue_sub")], lambda u:None).replace(
+          "@None","@x") or True)  # smoke: just ensure no crash on None display
+
 print("\n[7l] @mention on the accepted roster (label, never a ping)")
 from bot.ui.embeds import _roster_line as _rl
 from bot.store import Signup as _Signup

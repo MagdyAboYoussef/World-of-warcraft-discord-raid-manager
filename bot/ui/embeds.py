@@ -10,7 +10,7 @@ import discord
 from ..config import mention_on_accept, region_label
 from ..data import buffs as buffs_data
 from ..data import targets as targets_data
-from ..data.specs import ROLE_ORDER, get_spec
+from ..data.specs import Role, ROLE_ORDER, get_spec
 from ..emojis import registry
 from ..store import Raid, RaidState, Signup, Status, raid_is_closed, raid_is_finished
 from .schedule import format_clock, format_display, format_duration
@@ -68,6 +68,54 @@ def clamp_title(text: str) -> str:
 
 def _spec_of(signup: Signup):
     return get_spec(signup.spec_key)
+
+
+#: The role token each role maps to in the copy-export string. Tanks and heals
+#: and dps (melee+ranged folded together) — the format a raid tool consumes.
+_EXPORT_ROLE = {Role.TANK: "tank~3", Role.HEALER: "heal",
+                Role.MELEE: "dps~1", Role.RANGED: "dps~1"}
+
+#: Class -> the export's class token. The ten shown in the sample are exact;
+#: Monk/Rogue/Evoker follow the same all-caps pattern (adjust if the tool wants
+#: different tokens).
+_EXPORT_CLASS = {
+    "Warrior": "WARR", "Death Knight": "DK", "Priest": "PRIEST", "Druid": "DRUID",
+    "Paladin": "PALA", "Warlock": "WARLOCK", "Demon Hunter": "DemonHunter",
+    "Shaman": "SHAMAN", "Hunter": "HUNTER", "Mage": "MAGE",
+    "Monk": "MONK", "Rogue": "ROGUE", "Evoker": "EVOKER",
+}
+
+
+def roster_export(accepted: list[Signup], display_of) -> str:
+    """The active roster as :role::CLASS:@name lines, tanks then heals then dps.
+
+    `display_of(user_id)` returns the member's server display name (nickname),
+    which is what the sample uses (e.g. "@|Elite| Life"); it falls back to the
+    stored handle, then the id. Order within a group matches the board:
+    by class, then character name.
+    """
+    buckets: dict[str, list[Signup]] = {"tank": [], "heal": [], "dps": []}
+    for s in accepted:
+        spec = _spec_of(s)
+        if spec is None:
+            continue
+        key = ("tank" if spec.role is Role.TANK
+               else "heal" if spec.role is Role.HEALER else "dps")
+        buckets[key].append(s)
+
+    lines: list[str] = []
+    for key in ("tank", "heal", "dps"):
+        group = sorted(buckets[key], key=lambda x: (
+            (_spec_of(x).wow_class if _spec_of(x) else "").casefold(),
+            x.character_name.casefold(),
+        ))
+        for s in group:
+            spec = _spec_of(s)
+            role_tag = _EXPORT_ROLE[spec.role]
+            class_tag = _EXPORT_CLASS.get(spec.wow_class, spec.wow_class.upper())
+            name = display_of(s.user_id) or s.discord_name or str(s.user_id)
+            lines.append(f":{role_tag}::{class_tag}:@{name}")
+    return "\n".join(lines)
 
 
 def _sorted(signups: list[Signup]) -> list[Signup]:

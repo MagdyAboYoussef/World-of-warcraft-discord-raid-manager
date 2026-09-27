@@ -32,6 +32,7 @@ from ..ui.common import (
     request_raid_refresh, split_character,
 )
 from . import overview, tokens
+from ..ui.embeds import roster_export
 from .page import render_page
 
 if TYPE_CHECKING:
@@ -672,6 +673,17 @@ class RaidWebServer:
         # let them disagree.
         buffs = evaluate_buffs(accepted_specs)
 
+        # Export string uses server nicknames, which the members intent caches.
+        guild = self.bot.get_guild(raid.guild_id)
+
+        def _display(uid: int):
+            member = guild.get_member(uid) if guild is not None else None
+            return getattr(member, "display_name", None)
+
+        export = roster_export(
+            [s for s in signups if s.status is Status.ACCEPTED], _display
+        )
+
         return {
             "raid": {
                 "id": raid.id,
@@ -782,6 +794,7 @@ class RaidWebServer:
             ],
             "viewer_id": str(claims.user_id),
             "expires_at": claims.expires_at,
+            "export": export,
         }
 
     def _signup_json(self, signup) -> dict[str, Any]:

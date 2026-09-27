@@ -964,6 +964,17 @@ function render(next) {
   }
 }
 
+$('#export').addEventListener('click', async () => {
+  const text = (state && state.export) || '';
+  if (!text) { toast('No accepted roster to export yet.'); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Active roster copied — paste it wherever you need the export.');
+  } catch (_) {
+    toast('Copy blocked by the browser — long-press/select the text to copy.');
+  }
+});
+
 $('#refresh').addEventListener('click', async () => {
   const btn = $('#refresh');
   btn.disabled = true;
@@ -1088,6 +1099,7 @@ BODY = """
     <input id="q" class="search" type="search" autocomplete="off"
            placeholder="Search name, @handle or class…">
     <button id="refresh" title="Redraw the raid board in Discord now">↻ Refresh board</button>
+    <button id="export" title="Copy the active roster as an export string">⧉ Copy export</button>
     <span class="grow"></span>
     <span class="hint">
       Focus a card, then <kbd>A</kbd>ccept <kbd>D</kbd> out <kbd>T</kbd>entative
