@@ -215,7 +215,10 @@ def format_clock(epoch: int, tz_name: str | None = None) -> str:
 
 
 #: Times guilds actually raid at, used to seed the `when` suggestions.
-COMMON_START_TIMES = ("19:00", "19:30", "20:00", "20:30", "21:00")
+#: Offered as one-tap start times in the "when" autocomplete, for today and
+#: for each of the next 7 days. Common daytime slots (12:00/15:00/18:00) plus
+#: the usual evening raid times.
+COMMON_START_TIMES = ("12:00", "15:00", "18:00", "19:00", "19:30", "20:00", "20:30", "21:00")
 COMMON_DURATIONS = ("1h30m", "2h", "2h30m", "3h", "3h30m", "4h")
 
 
@@ -239,7 +242,7 @@ def suggest_when(
     for days in range(1, 8):
         day = now + timedelta(days=days)
         label_day = "Tomorrow" if days == 1 else f"{day:%A}"
-        for clock in ("19:00", "20:00", "20:30"):
+        for clock in COMMON_START_TIMES:
             options.append((f"{label_day}, {clock}  ·  {day:%a %d %b}", f"{day:%a} {clock}"))
 
     options += [("In 1 hour", "in 1h"), ("In 90 minutes", "in 90m"), ("In 2 hours", "in 2h")]

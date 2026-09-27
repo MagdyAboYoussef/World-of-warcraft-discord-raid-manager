@@ -581,6 +581,19 @@ async def main() -> None:
           "channel" in body.get("error", "").lower() or "repost" in body.get("error", "").lower())
     refresh_ok["value"] = True
 
+    print("\n[5f] admin-only Helper / Loot body statuses")
+    check("both statuses reach the page", 
+          {"helper", "loot_body"} <= {x["value"] for x in state["statuses"]})
+    res = await client.post(f"/r/{good}/status",
+                            json={"user_id": str(RAIDER), "status": "loot_body"})
+    check("an admin can set loot_body", res.status == 200
+          and store.get_signup(raid.id, RAIDER).status is Status.LOOT_BODY)
+    res = await client.post(f"/r/{good}/status",
+                            json={"user_id": str(RAIDER), "status": "helper"})
+    check("an admin can set helper", res.status == 200
+          and store.get_signup(raid.id, RAIDER).status is Status.HELPER)
+    store.set_status(raid.id, RAIDER, Status.ACCEPTED, ADMIN)  # restore
+
     print("\n[6] bad input")
     for label, payload, expect in (
         ("unknown status", {"user_id": str(RAIDER), "status": "vibing"}, 400),

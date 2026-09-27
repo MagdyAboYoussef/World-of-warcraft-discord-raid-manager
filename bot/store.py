@@ -32,6 +32,11 @@ class Status(str, Enum):
     #: than slotted next to PENDING so that nothing depending on the existing
     #: member order shifts underneath it.
     TENTATIVE = "tentative"
+    #: Admin-only extras (never self-service): a Helper standing by, and a
+    #: Loot body brought only to receive loot. Appended so existing member order
+    #: is untouched.
+    HELPER = "helper"
+    LOOT_BODY = "loot_body"
 
     @property
     def label(self) -> str:
@@ -42,6 +47,8 @@ class Status(str, Enum):
             Status.BENCH: "Backup",
             Status.ABSENT: "Absent",
             Status.TENTATIVE: "Tentative",
+            Status.HELPER: "Helper",
+            Status.LOOT_BODY: "Loot body",
         }[self]
 
     @property
@@ -53,6 +60,8 @@ class Status(str, Enum):
             Status.BENCH: "⭐",
             Status.ABSENT: "🚫",
             Status.TENTATIVE: "❔",
+            Status.HELPER: "🤝",
+            Status.LOOT_BODY: "💰",
         }[self]
 
     @property

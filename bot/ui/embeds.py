@@ -408,6 +408,8 @@ def build_raid_embed(raid: Raid, signups: list[Signup]) -> discord.Embed:
     side: list[tuple[str, list[Signup]]] = [
         ("❔ Tentative", by_status[Status.TENTATIVE]),
         ("⭐ Backup", by_status[Status.BENCH]),
+        ("🤝 Helper", by_status[Status.HELPER]),
+        ("💰 Loot body", by_status[Status.LOOT_BODY]),
         ("🚫 Absent", by_status[Status.ABSENT]),
         ("❌ Out", by_status[Status.DECLINED]),
     ]
@@ -433,7 +435,8 @@ def _within_total_limit(embed: discord.Embed) -> discord.Embed:
     which would freeze the board rather than merely truncate it. The comp and
     buff panel are the point of the board, so the side queues go first.
     """
-    droppable = ("❌ Out", "🚫 Absent", "⭐ Backup", "❔ Tentative", "🕓 Pending")
+    droppable = ("❌ Out", "🚫 Absent", "💰 Loot body", "🤝 Helper", "⭐ Backup",
+                 "❔ Tentative", "🕓 Pending")
     for name_prefix in droppable:
         if len(embed) <= TOTAL_LIMIT:
             break

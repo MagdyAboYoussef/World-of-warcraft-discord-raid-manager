@@ -181,6 +181,8 @@ kbd {
 .card .badge[data-s="tentative"] { color: #c8a2fc;         border-color: #4a3570; background: #1c1430; }
 .card .badge[data-s="bench"]     { color: #c9d1d9;         border-color: #3a4150; background: #20252e; }
 .card .badge[data-s="absent"]    { color: #b3bcc9;         border-color: #333a46; background: #1b1f27; }
+.card .badge[data-s="helper"]    { color: #7fd6c2; border-color: #235049; background: #10221f; }
+.card .badge[data-s="loot_body"] { color: #e6c34a; border-color: #5c4a1a; background: #241f0c; }
 .card .badge[data-s="declined"]  { color: var(--declined); border-color: #4d2222; background: #241414; }
 .card img.icon {
   width: 28px; height: 28px; border-radius: 5px; flex: none;
@@ -244,6 +246,10 @@ kbd {
   background: rgba(90,98,112,.22); border-color: var(--absent); color: var(--text); }
 .acts button[data-s="pending"]:hover, .card[data-status="pending"] .acts button[data-s="pending"] {
   background: rgba(210,153,34,.16); border-color: var(--pending); color: var(--pending); }
+.acts button[data-s="helper"]:hover, .card[data-status="helper"] .acts button[data-s="helper"] {
+  background: rgba(127,214,194,.16); border-color: #7fd6c2; color: #7fd6c2; }
+.acts button[data-s="loot_body"]:hover, .card[data-status="loot_body"] .acts button[data-s="loot_body"] {
+  background: rgba(230,195,74,.16); border-color: #e6c34a; color: #e6c34a; }
 /* Destructive, and on its own line: deleting an application is not a status
    change, and it must not sit shoulder to shoulder with the six that are. */
 .acts button[data-s="remove"] {
@@ -295,14 +301,16 @@ const ICON_MAP = window.ICON_MAP || null;
 const iconUrl = (slug) => (ICON_MAP ? ICON_MAP[slug] || '' : ICONS + slug + '.jpg');
 // Sort order within a column: undecided first, since those are the ones asking
 // the raid lead for a decision.
-const ORDER = { pending: 0, tentative: 1, accepted: 2, bench: 3, absent: 4, declined: 5 };
+const ORDER = { pending: 0, tentative: 1, accepted: 2, bench: 3, helper: 4,
+                loot_body: 5, absent: 6, declined: 7 };
 const KEYS = { a: 'accepted', d: 'declined', t: 'tentative', b: 'bench', n: 'absent',
-               p: 'pending' };
+               p: 'pending', h: 'helper', l: 'loot_body' };
 // Not derived from the status labels: "Accepted" and "Absent" both start with
 // A, so first-letter buttons would give the roster two identical controls.
 const SHORT = {
   accepted: ['Accept', 'A'], declined: ['Out', 'D'], tentative: ['Tent', 'T'],
   bench: ['Backup', 'B'], absent: ['Absent', 'N'], pending: ['Reset', 'P'],
+  helper: ['Helper', 'H'], loot_body: ['Loot', 'L'],
 };
 
 // Audit actions -> what the log says happened. Kept here rather than sent from

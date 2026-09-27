@@ -818,6 +818,30 @@ check("class-alphabetical, name within class", order == ["Dan", "Amy", "Bob", "C
 check("two specs of one class stay adjacent",
       abs(order.index("Amy") - order.index("Bob")) == 1)
 
+print("\n[7o] Helper / Loot body (admin-only) statuses")
+check("helper is not self-service", not Status.HELPER.self_service)
+check("loot body is not self-service", not Status.LOOT_BODY.self_service)
+check("they have distinct labels/emoji",
+      {Status.HELPER.label, Status.LOOT_BODY.label} == {"Helper", "Loot body"})
+with tempfile.TemporaryDirectory() as _tmp:
+    _st = Store(Path(_tmp) / "hb.sqlite3")
+    _r = _st.create_raid(guild_id=1, channel_id=1, title="HB", description=None,
+                         leader_id=1, starts_at=None, timezone="EU",
+                         caps={"tank": 2, "healer": 4, "melee": 7, "ranged": 7})
+    _st.upsert_signup(raid_id=_r.id, user_id=1, character_name="Helpy-Kazzak", logs_url=None,
+                      spec_key="mage_frost", status=Status.HELPER, discord_name="h")
+    _st.upsert_signup(raid_id=_r.id, user_id=2, character_name="Looty-Kazzak", logs_url=None,
+                      spec_key="warr_arms", status=Status.LOOT_BODY, discord_name="l")
+    _st.upsert_signup(raid_id=_r.id, user_id=3, character_name="Real-Kazzak", logs_url=None,
+                      spec_key="pal_prot", status=Status.ACCEPTED, discord_name="r")
+    _e = build_raid_embed(_st.get_raid(_r.id), _st.signups(_r.id))
+    _names = [f.name for f in _e.fields]
+    check("board shows a Helper section", any("Helper" in n for n in _names), str(_names))
+    check("board shows a Loot body section", any("Loot body" in n for n in _names))
+    check("helper/loot body are not in the accepted tally",
+          any(n.startswith("🛡️ Tanks (1/2)") for n in _names))  # only the accepted paladin
+    _st.close()
+
 print("\n[7n] roster export string")
 from bot.ui.embeds import roster_export as _rex
 from bot.store import Signup as _S
