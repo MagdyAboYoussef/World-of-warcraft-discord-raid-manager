@@ -91,8 +91,8 @@ def roster_export(accepted: list[Signup], display_of) -> str:
 
     `display_of(user_id)` returns the member's server display name (nickname),
     which is what the sample uses (e.g. "@|Elite| Life"); it falls back to the
-    stored handle, then the id. Order within a group matches the board:
-    by class, then character name.
+    stored handle, then the id. A signup's note, if any, is appended after the
+    name. Order within a group matches the board: by class, then character name.
     """
     buckets: dict[str, list[Signup]] = {"tank": [], "heal": [], "dps": []}
     for s in accepted:
@@ -114,7 +114,10 @@ def roster_export(accepted: list[Signup], display_of) -> str:
             role_tag = _EXPORT_ROLE[spec.role]
             class_tag = _EXPORT_CLASS.get(spec.wow_class, spec.wow_class.upper())
             name = display_of(s.user_id) or s.discord_name or str(s.user_id)
-            lines.append(f":{role_tag}::{class_tag}:@{name}")
+            line = f":{role_tag}::{class_tag}:@{name}"
+            if s.note:
+                line += f" \u2014 {s.note}"   # append the note after the name
+            lines.append(line)
     return "\n".join(lines)
 
 

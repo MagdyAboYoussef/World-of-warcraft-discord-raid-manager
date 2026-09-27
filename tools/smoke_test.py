@@ -850,18 +850,25 @@ def _sg(uid, ch, spec):
               status=Status.ACCEPTED,note=None,updated_at=0,updated_by=None,discord_name=None)
 _acc=[_sg(1,"Tk","warr_prot"),_sg(2,"Dk","dk_blood"),_sg(3,"Pr","priest_holy"),
       _sg(4,"Dh","dh_devourer"),_sg(5,"Rg","rogue_sub")]
+_acc[0].note = "tanking left"      # a tank with a note
+_acc[3].note = "can be 10m late"   # a dps with a note; priest stays note-less
 _names={1:"|Lead| Logic",2:"Sadam",3:"|Elite| Life",4:"Dav",5:"Stabby"}
 _out=_rex(_acc, lambda u:_names.get(u)).split("\n")
+# sorted within group by class: tanks [DK, Warrior], heal [Priest], dps [DemonHunter, Rogue]
 check("tanks come first, then heals, then dps",
       _out[0].startswith(":tank~3:") and _out[2].startswith(":heal:") and _out[3].startswith(":dps~1:"),
       str(_out))
 check("line format is :role::CLASS:@name",
-      _out[1] == ":tank~3::WARR:@|Lead| Logic", _out[1])
-check("uses the display-name callback (nickname with @)", "@|Elite| Life" in _out[2])
+      _out[0] == ":tank~3::DK:@Sadam", _out[0])
+check("uses the display-name callback (nickname with @)", _out[2] == ":heal::PRIEST:@|Elite| Life")
 check("demon hunter maps to DemonHunter", any(":DemonHunter:" in l for l in _out))
-check("falls back to handle/id when no display name",
-      ":dps~1::ROGUE:@stabby_handle" in _rex([_sg(9,"X","rogue_sub")], lambda u:None).replace(
-          "@None","@x") or True)  # smoke: just ensure no crash on None display
+check("a note is appended after the name",
+      _out[1] == ":tank~3::WARR:@|Lead| Logic \u2014 tanking left", _out[1])
+check("a dps note is appended too",
+      any(l.endswith("@Dav \u2014 can be 10m late") for l in _out), str(_out))
+check("a note-less line has no trailing dash", _out[2] == ":heal::PRIEST:@|Elite| Life")
+check("no crash when there is no display name",
+      _rex([_sg(9,"X","rogue_sub")], lambda u: None).startswith(":dps~1::ROGUE:@9"))
 
 print("\n[7l] @mention on the accepted roster (label, never a ping)")
 from bot.ui.embeds import _roster_line as _rl
